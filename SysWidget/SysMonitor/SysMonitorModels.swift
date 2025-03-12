@@ -5,26 +5,26 @@ import IOKit.ps
 import Darwin
 
 // MARK: - Disk Usage Model
-struct DiskUsageData {
-    let total: UInt64
-    let free: UInt64
-    let used: UInt64
-    let usedPercentage: Double
+public struct DiskUsageData {
+    public let total: UInt64
+    public let free: UInt64
+    public let used: UInt64
+    public let usedPercentage: Double
     
-    var totalFormatted: String {
+    public var totalFormatted: String {
         ByteCountFormatter.string(fromByteCount: Int64(total), countStyle: .file)
     }
     
-    var freeFormatted: String {
+    public var freeFormatted: String {
         ByteCountFormatter.string(fromByteCount: Int64(free), countStyle: .file)
     }
     
-    var usedFormatted: String {
+    public var usedFormatted: String {
         ByteCountFormatter.string(fromByteCount: Int64(used), countStyle: .file)
     }
     
     // Helper function to get disk usage information
-    static func getCurrentDiskUsage() -> DiskUsageData {
+    public static func getCurrentDiskUsage() -> DiskUsageData {
         let fileURL = URL(fileURLWithPath: "/")
         var total: UInt64 = 0
         var free: UInt64 = 0
@@ -50,44 +50,52 @@ struct DiskUsageData {
             usedPercentage: percentage
         )
     }
+    
+    // Public initializer
+    public init(total: UInt64, free: UInt64, used: UInt64, usedPercentage: Double) {
+        self.total = total
+        self.free = free
+        self.used = used
+        self.usedPercentage = usedPercentage
+    }
 }
 
 // MARK: - Memory Usage Model
-struct MemoryUsageData {
-    let total: UInt64
-    let used: UInt64
-    let free: UInt64
-    let usedPercentage: Double
-    let active: UInt64
-    let inactive: UInt64
-    let wired: UInt64
+public struct MemoryUsageData {
+    public let total: UInt64
+    public let used: UInt64
+    public let free: UInt64
+    public let usedPercentage: Double
+    public let active: UInt64
+    public let inactive: UInt64
+    public let wired: UInt64
     
-    var totalFormatted: String {
+    public var totalFormatted: String {
         ByteCountFormatter.string(fromByteCount: Int64(total), countStyle: .memory)
     }
     
-    var freeFormatted: String {
+    public var freeFormatted: String {
         ByteCountFormatter.string(fromByteCount: Int64(free), countStyle: .memory)
     }
     
-    var usedFormatted: String {
+    public var usedFormatted: String {
         ByteCountFormatter.string(fromByteCount: Int64(used), countStyle: .memory)
     }
     
-    var activeFormatted: String {
+    public var activeFormatted: String {
         ByteCountFormatter.string(fromByteCount: Int64(active), countStyle: .memory)
     }
     
-    var inactiveFormatted: String {
+    public var inactiveFormatted: String {
         ByteCountFormatter.string(fromByteCount: Int64(inactive), countStyle: .memory)
     }
     
-    var wiredFormatted: String {
+    public var wiredFormatted: String {
         ByteCountFormatter.string(fromByteCount: Int64(wired), countStyle: .memory)
     }
     
     // Helper function to get memory usage information
-    static func getCurrentMemoryUsage() -> MemoryUsageData {
+    public static func getCurrentMemoryUsage() -> MemoryUsageData {
         var total: UInt64 = 0
         var free: UInt64 = 0
         var used: UInt64 = 0
@@ -131,15 +139,26 @@ struct MemoryUsageData {
             wired: wired
         )
     }
+    
+    // Public initializer
+    public init(total: UInt64, used: UInt64, free: UInt64, usedPercentage: Double, active: UInt64, inactive: UInt64, wired: UInt64) {
+        self.total = total
+        self.used = used
+        self.free = free
+        self.usedPercentage = usedPercentage
+        self.active = active
+        self.inactive = inactive
+        self.wired = wired
+    }
 }
 
 // MARK: - Network Interface Model
-struct NetworkInterface: Identifiable, Hashable {
-    var id: String { name }
-    let name: String
-    let displayName: String
+public struct NetworkInterface: Identifiable, Hashable {
+    public var id: String { name }
+    public let name: String
+    public let displayName: String
     
-    static func getAvailableInterfaces() -> [NetworkInterface] {
+    public static func getAvailableInterfaces() -> [NetworkInterface] {
         var interfaces: [NetworkInterface] = []
         
         // Add "All Interfaces" option
@@ -182,20 +201,26 @@ struct NetworkInterface: Identifiable, Hashable {
         
         return interfaces
     }
+    
+    // Public initializer
+    public init(name: String, displayName: String) {
+        self.name = name
+        self.displayName = displayName
+    }
 }
 
 // MARK: - Network Traffic Model
-struct NetworkTrafficData {
-    let upload: Double       // bytes per second
-    let download: Double     // bytes per second
-    let interfaceName: String
-    let timestamp: Date
+public struct NetworkTrafficData {
+    public let upload: Double       // bytes per second
+    public let download: Double     // bytes per second
+    public let interfaceName: String
+    public let timestamp: Date
     
-    var uploadFormatted: String {
+    public var uploadFormatted: String {
         formatBandwidth(upload)
     }
     
-    var downloadFormatted: String {
+    public var downloadFormatted: String {
         formatBandwidth(download)
     }
     
@@ -213,7 +238,7 @@ struct NetworkTrafficData {
     
     // Helper function to get simulated network traffic
     // In a real implementation, you would track actual network usage over time
-    static func getCurrentNetworkTraffic(for interfaceName: String) -> NetworkTrafficData {
+    public static func getCurrentNetworkTraffic(for interfaceName: String) -> NetworkTrafficData {
         // For a real implementation, you'd need to:
         // 1. Track previous and current bytes transmitted/received
         // 2. Calculate the difference over time
@@ -234,5 +259,13 @@ struct NetworkTrafficData {
             interfaceName: interfaceName,
             timestamp: Date()
         )
+    }
+    
+    // Public initializer
+    public init(upload: Double, download: Double, interfaceName: String, timestamp: Date) {
+        self.upload = upload
+        self.download = download
+        self.interfaceName = interfaceName
+        self.timestamp = timestamp
     }
 } 
