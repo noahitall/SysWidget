@@ -23,7 +23,7 @@ struct NetworkProvider: AppIntentTimelineProvider {
     func snapshot(for configuration: NetworkTrafficConfigIntent, in context: Context) async -> NetworkEntry {
         let interfaceName = configuration.networkInterface.id
         
-        NetworkEntry(
+        return NetworkEntry(
             date: Date(),
             networkTraffic: NetworkTrafficData.getCurrentNetworkTraffic(for: interfaceName),
             configuration: configuration
