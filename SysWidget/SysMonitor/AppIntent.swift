@@ -11,34 +11,40 @@ import AppIntents
 // MARK: - Common Update Frequency
 
 enum UpdateFrequency: String, AppEnum {
+    case seconds1 = "1 second"
+    case seconds5 = "5 seconds"
     case seconds10 = "10 seconds"
+    case seconds30 = "30 seconds"
+    case minutes1 = "1 minute"
+    case minutes5 = "5 minutes"
     case minutes15 = "15 minutes"
     case minutes30 = "30 minutes"
     case hourly = "1 hour"
-    case hours3 = "3 hours"
-    case hours6 = "6 hours"
-    case daily = "24 hours"
     
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Update Frequency")
     static var caseDisplayRepresentations: [UpdateFrequency: DisplayRepresentation] = [
+        .seconds1: DisplayRepresentation(title: "Every second"),
+        .seconds5: DisplayRepresentation(title: "Every 5 seconds"),
         .seconds10: DisplayRepresentation(title: "Every 10 seconds"),
+        .seconds30: DisplayRepresentation(title: "Every 30 seconds"),
+        .minutes1: DisplayRepresentation(title: "Every minute"),
+        .minutes5: DisplayRepresentation(title: "Every 5 minutes"),
         .minutes15: DisplayRepresentation(title: "Every 15 minutes"),
         .minutes30: DisplayRepresentation(title: "Every 30 minutes"),
-        .hourly: DisplayRepresentation(title: "Every hour"),
-        .hours3: DisplayRepresentation(title: "Every 3 hours"),
-        .hours6: DisplayRepresentation(title: "Every 6 hours"),
-        .daily: DisplayRepresentation(title: "Once a day")
+        .hourly: DisplayRepresentation(title: "Every hour")
     ]
     
     var timeInterval: TimeInterval {
         switch self {
+        case .seconds1: return 1
+        case .seconds5: return 5
         case .seconds10: return 10
+        case .seconds30: return 30
+        case .minutes1: return 60
+        case .minutes5: return 5 * 60
         case .minutes15: return 15 * 60
         case .minutes30: return 30 * 60
         case .hourly: return 60 * 60
-        case .hours3: return 3 * 60 * 60
-        case .hours6: return 6 * 60 * 60
-        case .daily: return 24 * 60 * 60
         }
     }
 }
@@ -49,7 +55,7 @@ struct DiskSpaceConfigIntent: WidgetConfigurationIntent {
     static var title: LocalizedStringResource { "Disk Space Configuration" }
     static var description: IntentDescription { "Configure the disk space widget." }
 
-    @Parameter(title: "Update Frequency", default: .hourly)
+    @Parameter(title: "Update Frequency", default: .minutes5)
     var updateFrequency: UpdateFrequency
 }
 
@@ -59,7 +65,7 @@ struct MemoryConfigIntent: WidgetConfigurationIntent {
     static var title: LocalizedStringResource { "Memory Usage Configuration" }
     static var description: IntentDescription { "Configure the memory usage widget." }
 
-    @Parameter(title: "Update Frequency", default: .seconds10)
+    @Parameter(title: "Update Frequency", default: .seconds1)
     var updateFrequency: UpdateFrequency
 }
 
@@ -110,7 +116,7 @@ struct NetworkTrafficConfigIntent: WidgetConfigurationIntent {
     static var title: LocalizedStringResource { "Network Traffic Configuration" }
     static var description: IntentDescription { "Configure network traffic monitoring." }
 
-    @Parameter(title: "Update Frequency", default: .seconds10)
+    @Parameter(title: "Update Frequency", default: .seconds1)
     var updateFrequency: UpdateFrequency
     
     // Remove the static property approach

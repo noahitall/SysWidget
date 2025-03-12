@@ -39,16 +39,21 @@ struct NetworkProvider: AppIntentTimelineProvider {
         // Get the configured refresh interval
         let configuredInterval = configuration.updateFrequency.timeInterval
         
-        // For very short intervals (like 10 seconds), we'll generate fewer future entries
-        // but for longer intervals, we'll create more to ensure data availability
-        let numberOfEntries = configuredInterval < 60 ? 2 : 4
-        
         // Add current entry
         entries.append(NetworkEntry(
             date: currentDate,
             networkTraffic: networkTraffic,
             configuration: configuration
         ))
+        
+        // For very short intervals (10 seconds or less), use a different approach
+        if configuredInterval <= 10 {
+            // For very short intervals, use .atEnd policy with only current entry
+            return Timeline(entries: entries, policy: .atEnd)
+        }
+        
+        // For longer intervals, generate future entries to ensure data availability
+        let numberOfEntries = configuredInterval < 60 ? 2 : 4
         
         // Generate future entries to ensure the widget has data even if refresh fails
         for i in 1...numberOfEntries {
@@ -65,13 +70,12 @@ struct NetworkProvider: AppIntentTimelineProvider {
             }
         }
         
-        // Set refresh policy using the configured interval
-        // For really short intervals, ensure the refresh time gives the system enough time
+        // For normal intervals, set refresh policy using the configured interval
         let nextRefreshDate = Calendar.current.date(
             byAdding: .second,
-            value: max(Int(configuredInterval), 5), // At least 5 seconds between refreshes
+            value: Int(configuredInterval),
             to: currentDate
-        ) ?? Date().addingTimeInterval(10) // Default to 10 seconds
+        ) ?? Date().addingTimeInterval(configuredInterval)
         
         return Timeline(entries: entries, policy: .after(nextRefreshDate))
     }
