@@ -36,9 +36,12 @@ struct NetworkProvider: AppIntentTimelineProvider {
         let networkTraffic = NetworkTrafficData.getCurrentNetworkTraffic(for: interfaceName)
         let currentDate = Date()
         
-        // Network traffic widgets should refresh more frequently
-        // Use the shortest time interval for network metrics
-        let refreshInterval = min(configuration.updateFrequency.timeInterval, 900) // Max 15 minutes
+        // Get the configured refresh interval
+        let configuredInterval = configuration.updateFrequency.timeInterval
+        
+        // For very short intervals (like 10 seconds), we'll generate fewer future entries
+        // but for longer intervals, we'll create more to ensure data availability
+        let numberOfEntries = configuredInterval < 60 ? 2 : 4
         
         // Add current entry
         entries.append(NetworkEntry(
@@ -47,26 +50,28 @@ struct NetworkProvider: AppIntentTimelineProvider {
             configuration: configuration
         ))
         
-        // Generate a couple future entries to ensure the widget has data even if refresh fails
-        // For network traffic, we keep fewer future entries because data gets stale quickly
-        if let futureDate = Calendar.current.date(
-            byAdding: .second,
-            value: Int(refreshInterval),
-            to: currentDate
-        ) {
-            entries.append(NetworkEntry(
-                date: futureDate,
-                networkTraffic: networkTraffic,
-                configuration: configuration
-            ))
+        // Generate future entries to ensure the widget has data even if refresh fails
+        for i in 1...numberOfEntries {
+            if let futureDate = Calendar.current.date(
+                byAdding: .second,
+                value: Int(configuredInterval) * i,
+                to: currentDate
+            ) {
+                entries.append(NetworkEntry(
+                    date: futureDate,
+                    networkTraffic: networkTraffic,
+                    configuration: configuration
+                ))
+            }
         }
         
-        // Set refresh policy - network widgets should update frequently
+        // Set refresh policy using the configured interval
+        // For really short intervals, ensure the refresh time gives the system enough time
         let nextRefreshDate = Calendar.current.date(
             byAdding: .second,
-            value: Int(refreshInterval),
+            value: max(Int(configuredInterval), 5), // At least 5 seconds between refreshes
             to: currentDate
-        ) ?? Date().addingTimeInterval(900) // Default to 15 minutes
+        ) ?? Date().addingTimeInterval(10) // Default to 10 seconds
         
         return Timeline(entries: entries, policy: .after(nextRefreshDate))
     }

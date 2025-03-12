@@ -11,6 +11,7 @@ import AppIntents
 // MARK: - Common Update Frequency
 
 enum UpdateFrequency: String, AppEnum {
+    case seconds10 = "10 seconds"
     case minutes15 = "15 minutes"
     case minutes30 = "30 minutes"
     case hourly = "1 hour"
@@ -20,6 +21,7 @@ enum UpdateFrequency: String, AppEnum {
     
     static var typeDisplayRepresentation = TypeDisplayRepresentation(name: "Update Frequency")
     static var caseDisplayRepresentations: [UpdateFrequency: DisplayRepresentation] = [
+        .seconds10: DisplayRepresentation(title: "Every 10 seconds"),
         .minutes15: DisplayRepresentation(title: "Every 15 minutes"),
         .minutes30: DisplayRepresentation(title: "Every 30 minutes"),
         .hourly: DisplayRepresentation(title: "Every hour"),
@@ -30,6 +32,7 @@ enum UpdateFrequency: String, AppEnum {
     
     var timeInterval: TimeInterval {
         switch self {
+        case .seconds10: return 10
         case .minutes15: return 15 * 60
         case .minutes30: return 30 * 60
         case .hourly: return 60 * 60
@@ -56,7 +59,7 @@ struct MemoryConfigIntent: WidgetConfigurationIntent {
     static var title: LocalizedStringResource { "Memory Usage Configuration" }
     static var description: IntentDescription { "Configure the memory usage widget." }
 
-    @Parameter(title: "Update Frequency", default: .hourly)
+    @Parameter(title: "Update Frequency", default: .seconds10)
     var updateFrequency: UpdateFrequency
 }
 
@@ -107,7 +110,7 @@ struct NetworkTrafficConfigIntent: WidgetConfigurationIntent {
     static var title: LocalizedStringResource { "Network Traffic Configuration" }
     static var description: IntentDescription { "Configure network traffic monitoring." }
 
-    @Parameter(title: "Update Frequency", default: .minutes15)
+    @Parameter(title: "Update Frequency", default: .seconds10)
     var updateFrequency: UpdateFrequency
     
     // Remove the static property approach
