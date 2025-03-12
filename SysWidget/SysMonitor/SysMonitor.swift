@@ -74,14 +74,27 @@ struct Provider: AppIntentTimelineProvider {
         // Current date
         let currentDate = Date()
         
-        // Add the current entry
-        let entry = SimpleEntry(date: currentDate, diskUsage: diskUsage, configuration: configuration)
-        entries.append(entry)
+        // Always add the current entry
+        entries.append(SimpleEntry(date: currentDate, diskUsage: diskUsage, configuration: configuration))
         
-        // Set refresh time based on user preference
-        let nextUpdateDate = Calendar.current.date(byAdding: .second, value: Int(configuration.updateFrequency.timeInterval), to: currentDate)!
+        // Generate a few future entries to ensure the widget has data even if refresh fails
+        for i in 1...3 {
+            // Add entries at the configured interval
+            if let futureDate = Calendar.current.date(byAdding: .second, 
+                                                     value: Int(configuration.updateFrequency.timeInterval) * i, 
+                                                     to: currentDate) {
+                entries.append(SimpleEntry(date: futureDate, diskUsage: diskUsage, configuration: configuration))
+            }
+        }
         
-        return Timeline(entries: entries, policy: .after(nextUpdateDate))
+        // Set next refresh based on user preference
+        let nextRefreshDate = Calendar.current.date(
+            byAdding: .second,
+            value: min(Int(configuration.updateFrequency.timeInterval), 3600), // Max 1 hour for first refresh
+            to: currentDate
+        ) ?? Date().addingTimeInterval(3600)
+        
+        return Timeline(entries: entries, policy: .after(nextRefreshDate))
     }
 
 //    func relevances() async -> WidgetRelevances<ConfigurationAppIntent> {
