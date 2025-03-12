@@ -110,9 +110,18 @@ struct NetworkTrafficConfigIntent: WidgetConfigurationIntent {
     @Parameter(title: "Update Frequency", default: .minutes15)
     var updateFrequency: UpdateFrequency
     
-    // Use a computed property for the default value instead of inline
-    static let defaultInterface = NetworkInterfaceEntity(id: "all", name: "All Interfaces")
-    
-    @Parameter(title: "Network Interface", default: defaultInterface)
+    // Remove the static property approach
+    @Parameter(title: "Network Interface")
     var networkInterface: NetworkInterfaceEntity
+    
+    // Implement init to set default value
+    init() {
+        self.networkInterface = NetworkInterfaceEntity(id: "all", name: "All Interfaces")
+    }
+    
+    // Required initializer for AppIntent protocol
+    init(updateFrequency: UpdateFrequency, networkInterface: NetworkInterfaceEntity) {
+        self.updateFrequency = updateFrequency
+        self.networkInterface = networkInterface
+    }
 }
