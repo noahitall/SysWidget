@@ -1,148 +1,93 @@
-//
-//  SysMonitor.swift
-//  SysMonitor
-//
-//  Created by Noah Zitsman on 3/12/25.
-//
-
 import WidgetKit
 import SwiftUI
 
-// MARK: - This file has been reorganized
-/*
- This file previously contained the original SysMonitor widget implementation.
- The code has been restructured and split into separate files for better maintainability:
- 
- - DiskSpaceWidget.swift: Contains the disk space monitoring widget
- - MemoryWidget.swift: Contains the memory usage monitoring widget
- - NetworkWidget.swift: Contains the network traffic monitoring widget
- - SysMonitorModels.swift: Contains shared data models and utilities
- - AppIntent.swift: Contains configuration intents for all widgets
- - SysMonitorBundle.swift: Contains the widget bundle configuration
- 
- This reorganization allows for more modular code and easier maintenance.
-*/
+// MARK: - Disk Space Widget Entry
 
-// Disk usage data structure to hold our metrics data
-struct DiskUsageData {
-    let total: UInt64
-    let free: UInt64
-    let used: UInt64
-    let usedPercentage: Double
-    
-    var totalFormatted: String {
-        ByteCountFormatter.string(fromByteCount: Int64(total), countStyle: .file)
-    }
-    
-    var freeFormatted: String {
-        ByteCountFormatter.string(fromByteCount: Int64(free), countStyle: .file)
-    }
-    
-    var usedFormatted: String {
-        ByteCountFormatter.string(fromByteCount: Int64(used), countStyle: .file)
-    }
-    
-    // Helper function to get disk usage information
-    static func getCurrentDiskUsage() -> DiskUsageData {
-        let fileURL = URL(fileURLWithPath: "/")
-        var total: UInt64 = 0
-        var free: UInt64 = 0
-        var used: UInt64 = 0
-        var percentage: Double = 0
-        
-        do {
-            let values = try fileURL.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey])
-            if let totalCapacity = values.volumeTotalCapacity, let availableCapacity = values.volumeAvailableCapacity {
-                total = UInt64(totalCapacity)
-                free = UInt64(availableCapacity)
-                used = total - free
-                percentage = Double(used) / Double(total) * 100
-            }
-        } catch {
-            print("Error getting disk usage: \(error)")
-        }
-        
-        return DiskUsageData(
-            total: total,
-            free: free,
-            used: used,
-            usedPercentage: percentage
-        )
-    }
+struct DiskSpaceEntry: TimelineEntry {
+    let date: Date
+    let diskUsage: DiskUsageData
+    let configuration: DiskSpaceConfigIntent
 }
 
-struct Provider: AppIntentTimelineProvider {
-    func placeholder(in context: Context) -> SimpleEntry {
-        let diskUsage = DiskUsageData.getCurrentDiskUsage()
-        return SimpleEntry(date: Date(), diskUsage: diskUsage, configuration: ConfigurationAppIntent())
+// MARK: - Disk Space Provider
+
+struct DiskSpaceProvider: AppIntentTimelineProvider {
+    func placeholder(in context: Context) -> DiskSpaceEntry {
+        DiskSpaceEntry(
+            date: Date(),
+            diskUsage: DiskUsageData.getCurrentDiskUsage(),
+            configuration: DiskSpaceConfigIntent()
+        )
     }
 
-    func snapshot(for configuration: ConfigurationAppIntent, in context: Context) async -> SimpleEntry {
-        let diskUsage = DiskUsageData.getCurrentDiskUsage()
-        return SimpleEntry(date: Date(), diskUsage: diskUsage, configuration: configuration)
+    func snapshot(for configuration: DiskSpaceConfigIntent, in context: Context) async -> DiskSpaceEntry {
+        DiskSpaceEntry(
+            date: Date(),
+            diskUsage: DiskUsageData.getCurrentDiskUsage(),
+            configuration: configuration
+        )
     }
     
-    func timeline(for configuration: ConfigurationAppIntent, in context: Context) async -> Timeline<SimpleEntry> {
-        var entries: [SimpleEntry] = []
+    func timeline(for configuration: DiskSpaceConfigIntent, in context: Context) async -> Timeline<DiskSpaceEntry> {
+        var entries: [DiskSpaceEntry] = []
         let diskUsage = DiskUsageData.getCurrentDiskUsage()
-
-        // Current date
         let currentDate = Date()
         
-        // Always add the current entry
-        entries.append(SimpleEntry(date: currentDate, diskUsage: diskUsage, configuration: configuration))
+        // Add current entry
+        entries.append(DiskSpaceEntry(
+            date: currentDate,
+            diskUsage: diskUsage,
+            configuration: configuration
+        ))
         
-        // Generate a few future entries to ensure the widget has data even if refresh fails
+        // Generate future entries to ensure the widget has data even if refresh fails
         for i in 1...3 {
-            // Add entries at the configured interval
-            if let futureDate = Calendar.current.date(byAdding: .second, 
-                                                     value: Int(configuration.updateFrequency.timeInterval) * i, 
-                                                     to: currentDate) {
-                entries.append(SimpleEntry(date: futureDate, diskUsage: diskUsage, configuration: configuration))
+            if let futureDate = Calendar.current.date(
+                byAdding: .second,
+                value: Int(configuration.updateFrequency.timeInterval) * i,
+                to: currentDate
+            ) {
+                entries.append(DiskSpaceEntry(
+                    date: futureDate,
+                    diskUsage: diskUsage,
+                    configuration: configuration
+                ))
             }
         }
         
-        // Set next refresh based on user preference
+        // Set refresh policy
         let nextRefreshDate = Calendar.current.date(
             byAdding: .second,
-            value: min(Int(configuration.updateFrequency.timeInterval), 3600), // Max 1 hour for first refresh
+            value: min(Int(configuration.updateFrequency.timeInterval), 3600),
             to: currentDate
         ) ?? Date().addingTimeInterval(3600)
         
         return Timeline(entries: entries, policy: .after(nextRefreshDate))
     }
-
-//    func relevances() async -> WidgetRelevances<ConfigurationAppIntent> {
-//        // Generate a list containing the contexts this widget is relevant in.
-//    }
 }
 
-struct SimpleEntry: TimelineEntry {
-    let date: Date
-    let diskUsage: DiskUsageData
-    let configuration: ConfigurationAppIntent
-}
+// MARK: - Disk Space Widget Views
 
-struct SysMonitorEntryView : View {
+struct DiskSpaceWidgetEntryView: View {
     @Environment(\.widgetFamily) var widgetFamily
-    var entry: Provider.Entry
-
+    var entry: DiskSpaceProvider.Entry
+    
     var body: some View {
         switch widgetFamily {
         case .systemSmall:
-            SmallDiskMonitorView(entry: entry)
+            SmallDiskView(entry: entry)
         case .systemMedium:
-            MediumDiskMonitorView(entry: entry)
+            MediumDiskView(entry: entry)
         case .systemLarge:
-            LargeDiskMonitorView(entry: entry)
+            LargeDiskView(entry: entry)
         default:
-            SmallDiskMonitorView(entry: entry)
+            SmallDiskView(entry: entry)
         }
     }
 }
 
-struct SmallDiskMonitorView: View {
-    var entry: SimpleEntry
+struct SmallDiskView: View {
+    var entry: DiskSpaceEntry
     
     var body: some View {
         VStack(spacing: 5) {
@@ -199,8 +144,8 @@ struct SmallDiskMonitorView: View {
     }
 }
 
-struct MediumDiskMonitorView: View {
-    var entry: SimpleEntry
+struct MediumDiskView: View {
+    var entry: DiskSpaceEntry
     
     var body: some View {
         HStack {
@@ -281,8 +226,8 @@ struct MediumDiskMonitorView: View {
     }
 }
 
-struct LargeDiskMonitorView: View {
-    var entry: SimpleEntry
+struct LargeDiskView: View {
+    var entry: DiskSpaceEntry
     
     var body: some View {
         VStack(spacing: 12) {
@@ -392,16 +337,18 @@ struct LargeDiskMonitorView: View {
     }
 }
 
-struct SysMonitor: Widget {
-    let kind: String = "SysMonitor"
+// MARK: - Disk Space Widget
+
+struct DiskSpaceWidget: Widget {
+    let kind: String = "DiskSpaceWidget"
 
     var body: some WidgetConfiguration {
-        AppIntentConfiguration(kind: kind, intent: ConfigurationAppIntent.self, provider: Provider()) { entry in
-            SysMonitorEntryView(entry: entry)
+        AppIntentConfiguration(kind: kind, intent: DiskSpaceConfigIntent.self, provider: DiskSpaceProvider()) { entry in
+            DiskSpaceWidgetEntryView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
         }
-        .configurationDisplayName("Disk Space Monitor")
-        .description("Shows free and used disk space on your system.")
+        .configurationDisplayName("Disk Space")
+        .description("Shows disk space usage on your system.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
-}
+} 

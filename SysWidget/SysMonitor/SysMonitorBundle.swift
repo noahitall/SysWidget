@@ -11,6 +11,13 @@ import SwiftUI
 @main
 struct SysMonitorBundle: WidgetBundle {
     var body: some Widget {
-        SysMonitor()
+        // Disk Space Widget
+        DiskSpaceWidget()
+        
+        // Memory Usage Widget
+        MemoryUsageWidget()
+        
+        // Network Traffic Widget
+        NetworkTrafficWidget()
     }
 }

@@ -1,155 +1,100 @@
-//
-//  SysMonitor.swift
-//  SysMonitor
-//
-//  Created by Noah Zitsman on 3/12/25.
-//
-
 import WidgetKit
 import SwiftUI
 
-// MARK: - This file has been reorganized
-/*
- This file previously contained the original SysMonitor widget implementation.
- The code has been restructured and split into separate files for better maintainability:
- 
- - DiskSpaceWidget.swift: Contains the disk space monitoring widget
- - MemoryWidget.swift: Contains the memory usage monitoring widget
- - NetworkWidget.swift: Contains the network traffic monitoring widget
- - SysMonitorModels.swift: Contains shared data models and utilities
- - AppIntent.swift: Contains configuration intents for all widgets
- - SysMonitorBundle.swift: Contains the widget bundle configuration
- 
- This reorganization allows for more modular code and easier maintenance.
-*/
+// MARK: - Memory Widget Entry
 
-// Disk usage data structure to hold our metrics data
-struct DiskUsageData {
-    let total: UInt64
-    let free: UInt64
-    let used: UInt64
-    let usedPercentage: Double
-    
-    var totalFormatted: String {
-        ByteCountFormatter.string(fromByteCount: Int64(total), countStyle: .file)
-    }
-    
-    var freeFormatted: String {
-        ByteCountFormatter.string(fromByteCount: Int64(free), countStyle: .file)
-    }
-    
-    var usedFormatted: String {
-        ByteCountFormatter.string(fromByteCount: Int64(used), countStyle: .file)
-    }
-    
-    // Helper function to get disk usage information
-    static func getCurrentDiskUsage() -> DiskUsageData {
-        let fileURL = URL(fileURLWithPath: "/")
-        var total: UInt64 = 0
-        var free: UInt64 = 0
-        var used: UInt64 = 0
-        var percentage: Double = 0
-        
-        do {
-            let values = try fileURL.resourceValues(forKeys: [.volumeTotalCapacityKey, .volumeAvailableCapacityKey])
-            if let totalCapacity = values.volumeTotalCapacity, let availableCapacity = values.volumeAvailableCapacity {
-                total = UInt64(totalCapacity)
-                free = UInt64(availableCapacity)
-                used = total - free
-                percentage = Double(used) / Double(total) * 100
-            }
-        } catch {
-            print("Error getting disk usage: \(error)")
-        }
-        
-        return DiskUsageData(
-            total: total,
-            free: free,
-            used: used,
-            usedPercentage: percentage
-        )
-    }
+struct MemoryEntry: TimelineEntry {
+    let date: Date
+    let memoryUsage: MemoryUsageData
+    let configuration: MemoryConfigIntent
 }
 
-struct Provider: AppIntentTimelineProvider {
-    func placeholder(in context: Context) -> SimpleEntry {
-        let diskUsage = DiskUsageData.getCurrentDiskUsage()
-        return SimpleEntry(date: Date(), diskUsage: diskUsage, configuration: ConfigurationAppIntent())
+// MARK: - Memory Provider
+
+struct MemoryProvider: AppIntentTimelineProvider {
+    func placeholder(in context: Context) -> MemoryEntry {
+        MemoryEntry(
+            date: Date(),
+            memoryUsage: MemoryUsageData.getCurrentMemoryUsage(),
+            configuration: MemoryConfigIntent()
+        )
     }
 
-    func snapshot(for configuration: ConfigurationAppIntent, in context: Context) async -> SimpleEntry {
-        let diskUsage = DiskUsageData.getCurrentDiskUsage()
-        return SimpleEntry(date: Date(), diskUsage: diskUsage, configuration: configuration)
+    func snapshot(for configuration: MemoryConfigIntent, in context: Context) async -> MemoryEntry {
+        MemoryEntry(
+            date: Date(),
+            memoryUsage: MemoryUsageData.getCurrentMemoryUsage(),
+            configuration: configuration
+        )
     }
     
-    func timeline(for configuration: ConfigurationAppIntent, in context: Context) async -> Timeline<SimpleEntry> {
-        var entries: [SimpleEntry] = []
-        let diskUsage = DiskUsageData.getCurrentDiskUsage()
-
-        // Current date
+    func timeline(for configuration: MemoryConfigIntent, in context: Context) async -> Timeline<MemoryEntry> {
+        var entries: [MemoryEntry] = []
+        let memoryUsage = MemoryUsageData.getCurrentMemoryUsage()
         let currentDate = Date()
         
-        // Always add the current entry
-        entries.append(SimpleEntry(date: currentDate, diskUsage: diskUsage, configuration: configuration))
+        // Add current entry
+        entries.append(MemoryEntry(
+            date: currentDate,
+            memoryUsage: memoryUsage,
+            configuration: configuration
+        ))
         
-        // Generate a few future entries to ensure the widget has data even if refresh fails
+        // Generate future entries to ensure the widget has data even if refresh fails
         for i in 1...3 {
-            // Add entries at the configured interval
-            if let futureDate = Calendar.current.date(byAdding: .second, 
-                                                     value: Int(configuration.updateFrequency.timeInterval) * i, 
-                                                     to: currentDate) {
-                entries.append(SimpleEntry(date: futureDate, diskUsage: diskUsage, configuration: configuration))
+            if let futureDate = Calendar.current.date(
+                byAdding: .second,
+                value: Int(configuration.updateFrequency.timeInterval) * i,
+                to: currentDate
+            ) {
+                entries.append(MemoryEntry(
+                    date: futureDate,
+                    memoryUsage: memoryUsage,
+                    configuration: configuration
+                ))
             }
         }
         
-        // Set next refresh based on user preference
+        // Set refresh policy
         let nextRefreshDate = Calendar.current.date(
             byAdding: .second,
-            value: min(Int(configuration.updateFrequency.timeInterval), 3600), // Max 1 hour for first refresh
+            value: min(Int(configuration.updateFrequency.timeInterval), 3600),
             to: currentDate
         ) ?? Date().addingTimeInterval(3600)
         
         return Timeline(entries: entries, policy: .after(nextRefreshDate))
     }
-
-//    func relevances() async -> WidgetRelevances<ConfigurationAppIntent> {
-//        // Generate a list containing the contexts this widget is relevant in.
-//    }
 }
 
-struct SimpleEntry: TimelineEntry {
-    let date: Date
-    let diskUsage: DiskUsageData
-    let configuration: ConfigurationAppIntent
-}
+// MARK: - Memory Widget Views
 
-struct SysMonitorEntryView : View {
+struct MemoryWidgetEntryView: View {
     @Environment(\.widgetFamily) var widgetFamily
-    var entry: Provider.Entry
-
+    var entry: MemoryProvider.Entry
+    
     var body: some View {
         switch widgetFamily {
         case .systemSmall:
-            SmallDiskMonitorView(entry: entry)
+            SmallMemoryView(entry: entry)
         case .systemMedium:
-            MediumDiskMonitorView(entry: entry)
+            MediumMemoryView(entry: entry)
         case .systemLarge:
-            LargeDiskMonitorView(entry: entry)
+            LargeMemoryView(entry: entry)
         default:
-            SmallDiskMonitorView(entry: entry)
+            SmallMemoryView(entry: entry)
         }
     }
 }
 
-struct SmallDiskMonitorView: View {
-    var entry: SimpleEntry
+struct SmallMemoryView: View {
+    var entry: MemoryEntry
     
     var body: some View {
         VStack(spacing: 5) {
             HStack {
-                Image(systemName: "internaldrive")
-                    .foregroundStyle(.blue)
-                Text("Disk Space")
+                Image(systemName: "memorychip")
+                    .foregroundStyle(.green)
+                Text("Memory")
                     .font(.headline)
                     .fontWeight(.bold)
                 Spacer()
@@ -163,13 +108,13 @@ struct SmallDiskMonitorView: View {
                     .frame(width: 90, height: 90)
                 
                 Circle()
-                    .trim(from: 0, to: entry.diskUsage.usedPercentage / 100)
+                    .trim(from: 0, to: entry.memoryUsage.usedPercentage / 100)
                     .stroke(usageColor, style: StrokeStyle(lineWidth: 10, lineCap: .round))
                     .frame(width: 90, height: 90)
                     .rotationEffect(.degrees(-90))
                 
                 VStack(spacing: 0) {
-                    Text("\(Int(entry.diskUsage.usedPercentage))%")
+                    Text("\(Int(entry.memoryUsage.usedPercentage))%")
                         .font(.system(size: 16, weight: .bold))
                     
                     Text("Used")
@@ -180,7 +125,7 @@ struct SmallDiskMonitorView: View {
             
             Spacer()
             
-            Text("\(entry.diskUsage.freeFormatted) free")
+            Text("\(entry.memoryUsage.freeFormatted) free")
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(.secondary)
         }
@@ -188,10 +133,10 @@ struct SmallDiskMonitorView: View {
     }
     
     var usageColor: Color {
-        let percentage = entry.diskUsage.usedPercentage
-        if percentage < 70 {
+        let percentage = entry.memoryUsage.usedPercentage
+        if percentage < 50 {
             return .green
-        } else if percentage < 85 {
+        } else if percentage < 80 {
             return .orange
         } else {
             return .red
@@ -199,8 +144,8 @@ struct SmallDiskMonitorView: View {
     }
 }
 
-struct MediumDiskMonitorView: View {
-    var entry: SimpleEntry
+struct MediumMemoryView: View {
+    var entry: MemoryEntry
     
     var body: some View {
         HStack {
@@ -210,13 +155,13 @@ struct MediumDiskMonitorView: View {
                     .frame(width: 100, height: 100)
                 
                 Circle()
-                    .trim(from: 0, to: entry.diskUsage.usedPercentage / 100)
+                    .trim(from: 0, to: entry.memoryUsage.usedPercentage / 100)
                     .stroke(usageColor, style: StrokeStyle(lineWidth: 10, lineCap: .round))
                     .frame(width: 100, height: 100)
                     .rotationEffect(.degrees(-90))
                 
                 VStack(spacing: 2) {
-                    Text("\(Int(entry.diskUsage.usedPercentage))%")
+                    Text("\(Int(entry.memoryUsage.usedPercentage))%")
                         .font(.system(size: 20, weight: .bold))
                     
                     Text("Used")
@@ -228,9 +173,9 @@ struct MediumDiskMonitorView: View {
             
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    Image(systemName: "internaldrive")
-                        .foregroundStyle(.blue)
-                    Text("Disk Space")
+                    Image(systemName: "memorychip")
+                        .foregroundStyle(.green)
+                    Text("Memory Usage")
                         .font(.headline)
                         .fontWeight(.bold)
                 }
@@ -240,14 +185,14 @@ struct MediumDiskMonitorView: View {
                 HStack {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(.green)
-                    Text("Free: \(entry.diskUsage.freeFormatted)")
+                    Text("Free: \(entry.memoryUsage.freeFormatted)")
                         .font(.system(size: 14))
                 }
                 
                 HStack {
                     Image(systemName: "exclamationmark.circle.fill")
                         .foregroundStyle(.red)
-                    Text("Used: \(entry.diskUsage.usedFormatted)")
+                    Text("Used: \(entry.memoryUsage.usedFormatted)")
                         .font(.system(size: 14))
                 }
                 
@@ -264,10 +209,10 @@ struct MediumDiskMonitorView: View {
     }
     
     var usageColor: Color {
-        let percentage = entry.diskUsage.usedPercentage
-        if percentage < 70 {
+        let percentage = entry.memoryUsage.usedPercentage
+        if percentage < 50 {
             return .green
-        } else if percentage < 85 {
+        } else if percentage < 80 {
             return .orange
         } else {
             return .red
@@ -281,35 +226,33 @@ struct MediumDiskMonitorView: View {
     }
 }
 
-struct LargeDiskMonitorView: View {
-    var entry: SimpleEntry
+struct LargeMemoryView: View {
+    var entry: MemoryEntry
     
     var body: some View {
         VStack(spacing: 12) {
             HStack {
-                Image(systemName: "internaldrive")
-                    .foregroundStyle(.blue)
-                Text("Disk Space Monitor")
+                Image(systemName: "memorychip")
+                    .foregroundStyle(.green)
+                Text("Memory Monitor")
                     .font(.headline)
                     .fontWeight(.bold)
                 Spacer()
             }
             
-            Spacer()
-            
             ZStack {
                 Circle()
                     .stroke(Color.gray.opacity(0.2), lineWidth: 15)
-                    .frame(width: 120, height: 120)
+                    .frame(width: 110, height: 110)
                 
                 Circle()
-                    .trim(from: 0, to: entry.diskUsage.usedPercentage / 100)
+                    .trim(from: 0, to: entry.memoryUsage.usedPercentage / 100)
                     .stroke(usageColor, style: StrokeStyle(lineWidth: 15, lineCap: .round))
-                    .frame(width: 120, height: 120)
+                    .frame(width: 110, height: 110)
                     .rotationEffect(.degrees(-90))
                 
                 VStack(spacing: 2) {
-                    Text("\(Int(entry.diskUsage.usedPercentage))%")
+                    Text("\(Int(entry.memoryUsage.usedPercentage))%")
                         .font(.system(size: 24, weight: .bold))
                     
                     Text("Used")
@@ -318,16 +261,15 @@ struct LargeDiskMonitorView: View {
                 }
             }
             
-            Spacer()
-            
-            VStack(spacing: 12) {
+            // Memory type breakdown
+            VStack(spacing: 10) {
                 HStack {
                     Spacer()
                     VStack {
                         Text("Total")
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
-                        Text(entry.diskUsage.totalFormatted)
+                        Text(entry.memoryUsage.totalFormatted)
                             .font(.system(size: 16, weight: .bold))
                     }
                     Spacer()
@@ -335,29 +277,70 @@ struct LargeDiskMonitorView: View {
                         Text("Used")
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
-                        Text(entry.diskUsage.usedFormatted)
+                        Text(entry.memoryUsage.usedFormatted)
                             .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.red)
                     }
                     Spacer()
                     VStack {
                         Text("Free")
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
-                        Text(entry.diskUsage.freeFormatted)
+                        Text(entry.memoryUsage.freeFormatted)
                             .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.green)
                     }
                     Spacer()
                 }
                 
                 Divider()
                 
+                // Memory type breakdown
+                VStack(spacing: 8) {
+                    Text("Memory Allocation")
+                        .font(.system(size: 14, weight: .medium))
+                    
+                    HStack(spacing: 15) {
+                        // Active memory
+                        VStack(alignment: .leading) {
+                            Text("Active")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                            Text(entry.memoryUsage.activeFormatted)
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(.blue)
+                        }
+                        
+                        // Wired memory
+                        VStack(alignment: .leading) {
+                            Text("Wired")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                            Text(entry.memoryUsage.wiredFormatted)
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(.orange)
+                        }
+                        
+                        // Inactive memory
+                        VStack(alignment: .leading) {
+                            Text("Inactive")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                            Text(entry.memoryUsage.inactiveFormatted)
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(.gray)
+                        }
+                    }
+                }
+                .padding(.vertical, 5)
+                
                 // Progress bar
-                ProgressView(value: entry.diskUsage.usedPercentage, total: 100) {
+                ProgressView(value: entry.memoryUsage.usedPercentage, total: 100) {
                     HStack {
-                        Text("Usage")
+                        Text("Memory Usage")
                             .font(.caption)
                         Spacer()
-                        Text("\(Int(entry.diskUsage.usedPercentage))%")
+                        Text("\(Int(entry.memoryUsage.usedPercentage))%")
                             .font(.caption)
                             .fontWeight(.bold)
                     }
@@ -374,10 +357,10 @@ struct LargeDiskMonitorView: View {
     }
     
     var usageColor: Color {
-        let percentage = entry.diskUsage.usedPercentage
-        if percentage < 70 {
+        let percentage = entry.memoryUsage.usedPercentage
+        if percentage < 50 {
             return .green
-        } else if percentage < 85 {
+        } else if percentage < 80 {
             return .orange
         } else {
             return .red
@@ -392,16 +375,18 @@ struct LargeDiskMonitorView: View {
     }
 }
 
-struct SysMonitor: Widget {
-    let kind: String = "SysMonitor"
+// MARK: - Memory Widget
+
+struct MemoryUsageWidget: Widget {
+    let kind: String = "MemoryUsageWidget"
 
     var body: some WidgetConfiguration {
-        AppIntentConfiguration(kind: kind, intent: ConfigurationAppIntent.self, provider: Provider()) { entry in
-            SysMonitorEntryView(entry: entry)
+        AppIntentConfiguration(kind: kind, intent: MemoryConfigIntent.self, provider: MemoryProvider()) { entry in
+            MemoryWidgetEntryView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
         }
-        .configurationDisplayName("Disk Space Monitor")
-        .description("Shows free and used disk space on your system.")
+        .configurationDisplayName("Memory Usage")
+        .description("Shows RAM usage on your system.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
-}
+} 

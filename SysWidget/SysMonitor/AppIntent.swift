@@ -8,14 +8,7 @@
 import WidgetKit
 import AppIntents
 
-struct ConfigurationAppIntent: WidgetConfigurationIntent {
-    static var title: LocalizedStringResource { "Disk Monitor Configuration" }
-    static var description: IntentDescription { "Configure your disk space widget." }
-
-    // Configuration for refresh interval
-    @Parameter(title: "Update Frequency", default: .hourly)
-    var updateFrequency: UpdateFrequency
-}
+// MARK: - Common Update Frequency
 
 enum UpdateFrequency: String, AppEnum {
     case minutes15 = "15 minutes"
@@ -45,4 +38,78 @@ enum UpdateFrequency: String, AppEnum {
         case .daily: return 24 * 60 * 60
         }
     }
+}
+
+// MARK: - Disk Space Widget Configuration
+
+struct DiskSpaceConfigIntent: WidgetConfigurationIntent {
+    static var title: LocalizedStringResource { "Disk Space Configuration" }
+    static var description: IntentDescription { "Configure the disk space widget." }
+
+    @Parameter(title: "Update Frequency", default: .hourly)
+    var updateFrequency: UpdateFrequency
+}
+
+// MARK: - Memory Widget Configuration
+
+struct MemoryConfigIntent: WidgetConfigurationIntent {
+    static var title: LocalizedStringResource { "Memory Usage Configuration" }
+    static var description: IntentDescription { "Configure the memory usage widget." }
+
+    @Parameter(title: "Update Frequency", default: .hourly)
+    var updateFrequency: UpdateFrequency
+}
+
+// MARK: - Network Widget Configuration
+
+struct NetworkInterfaceEntity: AppEntity {
+    var id: String
+    var name: String
+    
+    static var defaultQuery = NetworkInterfaceQuery()
+    
+    static var typeDisplayRepresentation: TypeDisplayRepresentation {
+        TypeDisplayRepresentation(name: "Network Interface")
+    }
+    
+    var displayRepresentation: DisplayRepresentation {
+        DisplayRepresentation(title: "\(name)")
+    }
+}
+
+struct NetworkInterfaceQuery: EntityQuery {
+    func entities(for identifiers: [String]) async throws -> [NetworkInterfaceEntity] {
+        return identifiers.map { NetworkInterfaceEntity(id: $0, name: getDisplayName(for: $0)) }
+    }
+    
+    func suggestedEntities() async throws -> [NetworkInterfaceEntity] {
+        // Return list of available network interfaces
+        return NetworkInterface.getAvailableInterfaces().map { 
+            NetworkInterfaceEntity(id: $0.name, name: $0.displayName)
+        }
+    }
+    
+    private func getDisplayName(for interfaceID: String) -> String {
+        if interfaceID == "all" {
+            return "All Interfaces"
+        }
+        
+        let interfaces = NetworkInterface.getAvailableInterfaces()
+        if let match = interfaces.first(where: { $0.name == interfaceID }) {
+            return match.displayName
+        }
+        
+        return interfaceID
+    }
+}
+
+struct NetworkTrafficConfigIntent: WidgetConfigurationIntent {
+    static var title: LocalizedStringResource { "Network Traffic Configuration" }
+    static var description: IntentDescription { "Configure network traffic monitoring." }
+
+    @Parameter(title: "Update Frequency", default: .minutes15)
+    var updateFrequency: UpdateFrequency
+    
+    @Parameter(title: "Network Interface", default: NetworkInterfaceEntity(id: "all", name: "All Interfaces"))
+    var networkInterface: NetworkInterfaceEntity
 }
