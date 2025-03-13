@@ -4,6 +4,170 @@ import IOKit.ps
 // For network interfaces
 import Darwin
 
+// MARK: - Data Point Structs
+struct TimeSeriesDataPoint {
+    let timestamp: Date
+    let value: Double
+}
+
+// Codable version of TimeSeriesDataPoint for persistence
+struct TimeSeriesDataPointCodable: Codable {
+    let timestamp: TimeInterval
+    let value: Double
+    
+    init(from dataPoint: TimeSeriesDataPoint) {
+        self.timestamp = dataPoint.timestamp.timeIntervalSince1970
+        self.value = dataPoint.value
+    }
+    
+    func toTimeSeriesDataPoint() -> TimeSeriesDataPoint {
+        return TimeSeriesDataPoint(
+            timestamp: Date(timeIntervalSince1970: timestamp),
+            value: value
+        )
+    }
+}
+
+// MARK: - Historical Data Storage
+class HistoricalDataManager {
+    static let shared = HistoricalDataManager()
+    
+    // 15 minutes of data with points collected every 10 seconds
+    private let maxDataPoints = 90 // 15 minutes * 6 points per minute
+    
+    // UserDefaults keys
+    private let memoryHistoryKey = "memoryUsageHistory"
+    private let downloadHistoryKey = "networkDownloadHistory"
+    private let uploadHistoryKey = "networkUploadHistory"
+    
+    // Historical data storage
+    private var memoryUsageHistory: [TimeSeriesDataPoint] = []
+    private var networkDownloadHistory: [TimeSeriesDataPoint] = []
+    private var networkUploadHistory: [TimeSeriesDataPoint] = []
+    
+    // Last collection timestamps to prevent duplicate values
+    private var lastMemoryCollectionTime = Date(timeIntervalSince1970: 0)
+    private var lastNetworkCollectionTime = Date(timeIntervalSince1970: 0)
+    
+    private init() {
+        loadDataFromUserDefaults()
+    }
+    
+    // Load data from UserDefaults
+    private func loadDataFromUserDefaults() {
+        let userDefaults = UserDefaults(suiteName: "group.com.noahzitsman.syswidget") ?? UserDefaults.standard
+        
+        if let memoryData = userDefaults.data(forKey: memoryHistoryKey),
+           let memoryHistory = try? JSONDecoder().decode([TimeSeriesDataPointCodable].self, from: memoryData) {
+            memoryUsageHistory = memoryHistory.map { $0.toTimeSeriesDataPoint() }
+        }
+        
+        if let downloadData = userDefaults.data(forKey: downloadHistoryKey),
+           let downloadHistory = try? JSONDecoder().decode([TimeSeriesDataPointCodable].self, from: downloadData) {
+            networkDownloadHistory = downloadHistory.map { $0.toTimeSeriesDataPoint() }
+        }
+        
+        if let uploadData = userDefaults.data(forKey: uploadHistoryKey),
+           let uploadHistory = try? JSONDecoder().decode([TimeSeriesDataPointCodable].self, from: uploadData) {
+            networkUploadHistory = uploadHistory.map { $0.toTimeSeriesDataPoint() }
+        }
+    }
+    
+    // Save data to UserDefaults
+    private func saveDataToUserDefaults() {
+        let userDefaults = UserDefaults(suiteName: "group.com.noahzitsman.syswidget") ?? UserDefaults.standard
+        
+        let memoryHistoryCodable = memoryUsageHistory.map { TimeSeriesDataPointCodable(from: $0) }
+        if let memoryData = try? JSONEncoder().encode(memoryHistoryCodable) {
+            userDefaults.set(memoryData, forKey: memoryHistoryKey)
+        }
+        
+        let downloadHistoryCodable = networkDownloadHistory.map { TimeSeriesDataPointCodable(from: $0) }
+        if let downloadData = try? JSONEncoder().encode(downloadHistoryCodable) {
+            userDefaults.set(downloadData, forKey: downloadHistoryKey)
+        }
+        
+        let uploadHistoryCodable = networkUploadHistory.map { TimeSeriesDataPointCodable(from: $0) }
+        if let uploadData = try? JSONEncoder().encode(uploadHistoryCodable) {
+            userDefaults.set(uploadData, forKey: uploadHistoryKey)
+        }
+        
+        userDefaults.synchronize()
+    }
+    
+    // Add a memory usage data point
+    func addMemoryDataPoint(usagePercentage: Double) {
+        // Only collect data every 10 seconds
+        let now = Date()
+        if now.timeIntervalSince(lastMemoryCollectionTime) < 10 {
+            return
+        }
+        
+        lastMemoryCollectionTime = now
+        memoryUsageHistory.append(TimeSeriesDataPoint(timestamp: now, value: usagePercentage))
+        
+        // Trim if needed
+        if memoryUsageHistory.count > maxDataPoints {
+            memoryUsageHistory.removeFirst(memoryUsageHistory.count - maxDataPoints)
+        }
+        
+        // Save to UserDefaults
+        saveDataToUserDefaults()
+    }
+    
+    // Add network traffic data points
+    func addNetworkDataPoints(downloadSpeed: Double, uploadSpeed: Double) {
+        // Only collect data every 10 seconds
+        let now = Date()
+        if now.timeIntervalSince(lastNetworkCollectionTime) < 10 {
+            return
+        }
+        
+        lastNetworkCollectionTime = now
+        networkDownloadHistory.append(TimeSeriesDataPoint(timestamp: now, value: downloadSpeed))
+        networkUploadHistory.append(TimeSeriesDataPoint(timestamp: now, value: uploadSpeed))
+        
+        // Trim if needed
+        if networkDownloadHistory.count > maxDataPoints {
+            networkDownloadHistory.removeFirst(networkDownloadHistory.count - maxDataPoints)
+        }
+        
+        if networkUploadHistory.count > maxDataPoints {
+            networkUploadHistory.removeFirst(networkUploadHistory.count - maxDataPoints)
+        }
+        
+        // Save to UserDefaults
+        saveDataToUserDefaults()
+    }
+    
+    // Get memory usage history for the specified duration in minutes
+    func getMemoryUsageHistory(minutes: Int = 15) -> [TimeSeriesDataPoint] {
+        return filterDataPoints(memoryUsageHistory, minutes: minutes)
+    }
+    
+    // Get network download history for the specified duration in minutes
+    func getNetworkDownloadHistory(minutes: Int = 15) -> [TimeSeriesDataPoint] {
+        return filterDataPoints(networkDownloadHistory, minutes: minutes)
+    }
+    
+    // Get network upload history for the specified duration in minutes
+    func getNetworkUploadHistory(minutes: Int = 15) -> [TimeSeriesDataPoint] {
+        return filterDataPoints(networkUploadHistory, minutes: minutes)
+    }
+    
+    // Helper function to filter data points by time
+    private func filterDataPoints(_ dataPoints: [TimeSeriesDataPoint], minutes: Int) -> [TimeSeriesDataPoint] {
+        let cutoffTime = Date().addingTimeInterval(-Double(minutes * 60))
+        return dataPoints.filter { $0.timestamp > cutoffTime }
+    }
+    
+    // Clear all data - used when changing interfaces, etc.
+    func clearNetworkData() {
+        networkDownloadHistory.removeAll()
+        networkUploadHistory.removeAll()
+    }
+}
+
 // MARK: - Disk Usage Model
 public struct DiskUsageData {
     public let total: UInt64
@@ -69,6 +233,7 @@ public struct MemoryUsageData {
     public let active: UInt64
     public let inactive: UInt64
     public let wired: UInt64
+    public let timestamp: Date
     
     public var totalFormatted: String {
         ByteCountFormatter.string(fromByteCount: Int64(total), countStyle: .memory)
@@ -129,19 +294,25 @@ public struct MemoryUsageData {
             percentage = Double(used) / Double(total) * 100
         }
         
-        return MemoryUsageData(
+        let memoryData = MemoryUsageData(
             total: total,
             used: used,
             free: free,
             usedPercentage: percentage,
             active: active,
             inactive: inactive,
-            wired: wired
+            wired: wired,
+            timestamp: Date()
         )
+        
+        // Add data point to historical data
+        HistoricalDataManager.shared.addMemoryDataPoint(usagePercentage: memoryData.usedPercentage)
+        
+        return memoryData
     }
     
     // Public initializer
-    public init(total: UInt64, used: UInt64, free: UInt64, usedPercentage: Double, active: UInt64, inactive: UInt64, wired: UInt64) {
+    public init(total: UInt64, used: UInt64, free: UInt64, usedPercentage: Double, active: UInt64, inactive: UInt64, wired: UInt64, timestamp: Date) {
         self.total = total
         self.used = used
         self.free = free
@@ -149,6 +320,7 @@ public struct MemoryUsageData {
         self.active = active
         self.inactive = inactive
         self.wired = wired
+        self.timestamp = timestamp
     }
 }
 
@@ -157,12 +329,13 @@ public struct NetworkInterface: Identifiable, Hashable {
     public var id: String { name }
     public let name: String
     public let displayName: String
+    public let isUp: Bool
     
     public static func getAvailableInterfaces() -> [NetworkInterface] {
         var interfaces: [NetworkInterface] = []
         
         // Add "All Interfaces" option
-        interfaces.append(NetworkInterface(name: "all", displayName: "All Interfaces"))
+        interfaces.append(NetworkInterface(name: "all", displayName: "All Interfaces", isUp: true))
         
         // Get list of network interfaces using getifaddrs
         var ifaddr: UnsafeMutablePointer<ifaddrs>?
@@ -170,6 +343,8 @@ public struct NetworkInterface: Identifiable, Hashable {
         defer { freeifaddrs(ifaddr) }
         
         var ptr = ifaddr
+        var interfaceNames = Set<String>()
+        
         while ptr != nil {
             defer { ptr = ptr?.pointee.ifa_next }
             
@@ -180,7 +355,9 @@ public struct NetworkInterface: Identifiable, Hashable {
             if name == "lo0" { continue }
             
             // Skip interfaces we've already added
-            if !interfaces.contains(where: { $0.name == name }) {
+            if !interfaceNames.contains(name) {
+                interfaceNames.insert(name)
+                
                 // Create a display name
                 let displayName: String
                 if name.hasPrefix("en") {
@@ -195,7 +372,10 @@ public struct NetworkInterface: Identifiable, Hashable {
                     displayName = name
                 }
                 
-                interfaces.append(NetworkInterface(name: name, displayName: displayName))
+                let flags = Int32(interface.ifa_flags)
+                let isUp = (flags & Int32(IFF_UP) != 0) && (flags & Int32(IFF_RUNNING) != 0)
+                
+                interfaces.append(NetworkInterface(name: name, displayName: displayName, isUp: isUp))
             }
         }
         
@@ -203,9 +383,10 @@ public struct NetworkInterface: Identifiable, Hashable {
     }
     
     // Public initializer
-    public init(name: String, displayName: String) {
+    public init(name: String, displayName: String, isUp: Bool) {
         self.name = name
         self.displayName = displayName
+        self.isUp = isUp
     }
 }
 
@@ -236,8 +417,7 @@ public struct NetworkTrafficData {
         }
     }
     
-    // Helper function to get simulated network traffic
-    // In a real implementation, you would track actual network usage over time
+    // Helper function to get network traffic
     public static func getCurrentNetworkTraffic(for interfaceName: String) -> NetworkTrafficData {
         // For a real implementation, you'd need to:
         // 1. Track previous and current bytes transmitted/received
@@ -253,12 +433,17 @@ public struct NetworkTrafficData {
             Double.random(in: 0...512 * 1024) :  // 0-512KB/s
             Double.random(in: 0...256 * 1024)    // 0-256KB/s
         
-        return NetworkTrafficData(
+        let networkData = NetworkTrafficData(
             upload: upload,
             download: download,
             interfaceName: interfaceName,
             timestamp: Date()
         )
+        
+        // Add data points to historical data
+        HistoricalDataManager.shared.addNetworkDataPoints(downloadSpeed: download, uploadSpeed: upload)
+        
+        return networkData
     }
     
     // Public initializer

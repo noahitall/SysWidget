@@ -6,6 +6,8 @@ import SwiftUI
 struct NetworkEntry: TimelineEntry {
     let date: Date
     let networkTraffic: NetworkTrafficData
+    let downloadHistory: [TimeSeriesDataPoint]
+    let uploadHistory: [TimeSeriesDataPoint]
     let configuration: NetworkTrafficConfigIntent
 }
 
@@ -13,19 +15,24 @@ struct NetworkEntry: TimelineEntry {
 
 struct NetworkProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> NetworkEntry {
-        NetworkEntry(
+        return NetworkEntry(
             date: Date(),
             networkTraffic: NetworkTrafficData.getCurrentNetworkTraffic(for: "all"),
+            downloadHistory: generateSampleData(min: 5000, max: 3 * 1024 * 1024),
+            uploadHistory: generateSampleData(min: 1000, max: 1024 * 1024),
             configuration: NetworkTrafficConfigIntent()
         )
     }
 
     func snapshot(for configuration: NetworkTrafficConfigIntent, in context: Context) async -> NetworkEntry {
         let interfaceName = configuration.networkInterface.id
+        let networkTraffic = NetworkTrafficData.getCurrentNetworkTraffic(for: interfaceName)
         
         return NetworkEntry(
             date: Date(),
-            networkTraffic: NetworkTrafficData.getCurrentNetworkTraffic(for: interfaceName),
+            networkTraffic: networkTraffic,
+            downloadHistory: HistoricalDataManager.shared.getNetworkDownloadHistory(),
+            uploadHistory: HistoricalDataManager.shared.getNetworkUploadHistory(),
             configuration: configuration
         )
     }
@@ -35,36 +42,39 @@ struct NetworkProvider: AppIntentTimelineProvider {
         let interfaceName = configuration.networkInterface.id
         let networkTraffic = NetworkTrafficData.getCurrentNetworkTraffic(for: interfaceName)
         let currentDate = Date()
-        
-        // Get the configured refresh interval
-        let configuredInterval = configuration.updateFrequency.timeInterval
+        let downloadHistory = HistoricalDataManager.shared.getNetworkDownloadHistory()
+        let uploadHistory = HistoricalDataManager.shared.getNetworkUploadHistory()
         
         // Add current entry
         entries.append(NetworkEntry(
             date: currentDate,
             networkTraffic: networkTraffic,
+            downloadHistory: downloadHistory,
+            uploadHistory: uploadHistory,
             configuration: configuration
         ))
         
         // For very short intervals (10 seconds or less), use a different approach
-        if configuredInterval <= 10 {
+        if configuration.updateFrequency.timeInterval <= 10 {
             // For very short intervals, use .atEnd policy with only current entry
             return Timeline(entries: entries, policy: .atEnd)
         }
         
         // For longer intervals, generate future entries to ensure data availability
-        let numberOfEntries = configuredInterval < 60 ? 2 : 4
+        let numberOfEntries = configuration.updateFrequency.timeInterval < 60 ? 2 : 4
         
         // Generate future entries to ensure the widget has data even if refresh fails
         for i in 1...numberOfEntries {
             if let futureDate = Calendar.current.date(
                 byAdding: .second,
-                value: Int(configuredInterval) * i,
+                value: Int(configuration.updateFrequency.timeInterval) * i,
                 to: currentDate
             ) {
                 entries.append(NetworkEntry(
                     date: futureDate,
                     networkTraffic: networkTraffic,
+                    downloadHistory: downloadHistory,
+                    uploadHistory: uploadHistory,
                     configuration: configuration
                 ))
             }
@@ -73,11 +83,27 @@ struct NetworkProvider: AppIntentTimelineProvider {
         // For normal intervals, set refresh policy using the configured interval
         let nextRefreshDate = Calendar.current.date(
             byAdding: .second,
-            value: Int(configuredInterval),
+            value: Int(configuration.updateFrequency.timeInterval),
             to: currentDate
-        ) ?? Date().addingTimeInterval(configuredInterval)
+        ) ?? Date().addingTimeInterval(configuration.updateFrequency.timeInterval)
         
         return Timeline(entries: entries, policy: .after(nextRefreshDate))
+    }
+    
+    // Generate sample network data for placeholder
+    private func generateSampleData(min: Double, max: Double) -> [TimeSeriesDataPoint] {
+        var dataPoints: [TimeSeriesDataPoint] = []
+        let now = Date()
+        
+        // Create 15 minutes of data (90 points, every 10 seconds)
+        for i in 0..<90 {
+            let timestamp = now.addingTimeInterval(Double(-i * 10))
+            let value = Double.random(in: min...max)
+            dataPoints.append(TimeSeriesDataPoint(timestamp: timestamp, value: value))
+        }
+        
+        // Reverse to get chronological order
+        return dataPoints.reversed()
     }
 }
 
@@ -105,7 +131,7 @@ struct SmallNetworkView: View {
     var entry: NetworkEntry
     
     var body: some View {
-        VStack(spacing: 5) {
+        VStack(spacing: 2) {
             HStack {
                 Image(systemName: "network")
                     .foregroundStyle(.purple)
@@ -115,43 +141,67 @@ struct SmallNetworkView: View {
                 Spacer()
             }
             
-            Spacer()
-            
-            VStack(spacing: 12) {
-                // Download speed indicator
-                HStack {
-                    Image(systemName: "arrow.down.circle.fill")
-                        .foregroundColor(.green)
+            VStack(spacing: 8) {
+                // Download speed with sparkline
+                VStack(spacing: 2) {
+                    HStack {
+                        Image(systemName: "arrow.down.circle.fill")
+                            .foregroundColor(.green)
+                            .font(.system(size: 12))
+                        
+                        Text(entry.networkTraffic.downloadFormatted)
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.green)
+                        
+                        Spacer()
+                    }
                     
-                    Text(entry.networkTraffic.downloadFormatted)
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(.green)
+                    SparklineView(
+                        dataPoints: entry.downloadHistory,
+                        lineColor: .green,
+                        fillColor: .green.opacity(0.2),
+                        showMinMaxLabels: true
+                    )
+                    .frame(height: 24)
                 }
                 
-                // Upload speed indicator
-                HStack {
-                    Image(systemName: "arrow.up.circle.fill")
-                        .foregroundColor(.blue)
+                // Upload speed with sparkline
+                VStack(spacing: 2) {
+                    HStack {
+                        Image(systemName: "arrow.up.circle.fill")
+                            .foregroundColor(.blue)
+                            .font(.system(size: 12))
+                        
+                        Text(entry.networkTraffic.uploadFormatted)
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(.blue)
+                        
+                        Spacer()
+                    }
                     
-                    Text(entry.networkTraffic.uploadFormatted)
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(.blue)
+                    SparklineView(
+                        dataPoints: entry.uploadHistory,
+                        lineColor: .blue,
+                        fillColor: .blue.opacity(0.2),
+                        showMinMaxLabels: true
+                    )
+                    .frame(height: 24)
                 }
             }
             
-            Spacer()
+            Spacer(minLength: 2)
             
             // Display selected interface
             HStack {
                 Image(systemName: "antenna.radiowaves.left.and.right")
-                    .font(.system(size: 10))
+                    .font(.system(size: 9))
                     .foregroundStyle(.secondary)
                 Text(interfaceDisplayName)
-                    .font(.system(size: 10))
+                    .font(.system(size: 9))
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(12)
+        .padding(8)
     }
     
     var interfaceDisplayName: String {
@@ -164,49 +214,69 @@ struct MediumNetworkView: View {
     
     var body: some View {
         HStack {
-            VStack(alignment: .center, spacing: 10) {
-                // Download
-                VStack(spacing: 5) {
-                    Text("Download")
-                        .font(.system(size: 14, weight: .medium))
-                    
-                    HStack(alignment: .bottom, spacing: 3) {
+            // Left side - download & upload cards
+            VStack(alignment: .center, spacing: 8) {
+                // Download with sparkline
+                VStack(spacing: 2) {
+                    HStack {
                         Image(systemName: "arrow.down.circle.fill")
                             .foregroundColor(.green)
-                            .font(.system(size: 18))
+                            .font(.system(size: 16))
                         
-                        Text(entry.networkTraffic.downloadFormatted)
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundColor(.green)
+                        Text("Download")
+                            .font(.system(size: 13, weight: .medium))
                     }
+                    
+                    Text(entry.networkTraffic.downloadFormatted)
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.green)
+                    
+                    SparklineView(
+                        dataPoints: entry.downloadHistory,
+                        lineColor: .green,
+                        fillColor: .green.opacity(0.2),
+                        showMinMaxLabels: true
+                    )
+                    .frame(height: 30)
+                    .padding(.horizontal, 4)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
+                .padding(.vertical, 4)
                 .background(Color.green.opacity(0.1))
                 .cornerRadius(8)
                 
-                // Upload
-                VStack(spacing: 5) {
-                    Text("Upload")
-                        .font(.system(size: 14, weight: .medium))
-                    
-                    HStack(alignment: .bottom, spacing: 3) {
+                // Upload with sparkline
+                VStack(spacing: 2) {
+                    HStack {
                         Image(systemName: "arrow.up.circle.fill")
                             .foregroundColor(.blue)
-                            .font(.system(size: 18))
+                            .font(.system(size: 16))
                         
-                        Text(entry.networkTraffic.uploadFormatted)
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundColor(.blue)
+                        Text("Upload")
+                            .font(.system(size: 13, weight: .medium))
                     }
+                    
+                    Text(entry.networkTraffic.uploadFormatted)
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.blue)
+                    
+                    SparklineView(
+                        dataPoints: entry.uploadHistory,
+                        lineColor: .blue,
+                        fillColor: .blue.opacity(0.2),
+                        showMinMaxLabels: true
+                    )
+                    .frame(height: 30)
+                    .padding(.horizontal, 4)
                 }
                 .frame(maxWidth: .infinity)
-                .padding(.vertical, 8)
+                .padding(.vertical, 4)
                 .background(Color.blue.opacity(0.1))
                 .cornerRadius(8)
             }
             .frame(width: 130)
             
+            // Right side - general info
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Image(systemName: "network")
@@ -233,6 +303,10 @@ struct MediumNetworkView: View {
                 
                 Spacer()
                 
+                Text("15-minute history shown in graphs")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                
                 HStack {
                     Image(systemName: "arrow.triangle.2.circlepath")
                         .foregroundStyle(.secondary)
@@ -243,7 +317,7 @@ struct MediumNetworkView: View {
             }
             .padding(.leading, 5)
         }
-        .padding()
+        .padding(12)
     }
     
     var interfaceDisplayName: String {
@@ -261,7 +335,7 @@ struct LargeNetworkView: View {
     var entry: NetworkEntry
     
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             HStack {
                 Image(systemName: "network")
                     .foregroundStyle(.purple)
@@ -271,127 +345,93 @@ struct LargeNetworkView: View {
                 Spacer()
             }
             
-            HStack(alignment: .top, spacing: 20) {
-                // Left column - speeds
-                VStack(spacing: 15) {
-                    // Interface
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("Interface")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                        
-                        HStack {
-                            Image(systemName: "antenna.radiowaves.left.and.right")
-                                .foregroundColor(.purple)
-                            Text(interfaceDisplayName)
-                                .font(.system(size: 14, weight: .medium))
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.vertical, 8)
-                    
-                    Divider()
-                    
-                    // Speeds
-                    HStack(alignment: .top, spacing: 0) {
-                        // Download
-                        VStack(spacing: 5) {
-                            HStack {
-                                Image(systemName: "arrow.down.circle.fill")
-                                    .foregroundColor(.green)
-                                
-                                Text("Download")
-                                    .font(.system(size: 12))
-                            }
-                            
-                            Text(entry.networkTraffic.downloadFormatted)
-                                .font(.system(size: 18, weight: .bold))
-                                .foregroundColor(.green)
-                                .padding(.top, 3)
-                        }
-                        .frame(maxWidth: .infinity)
-                        
-                        // Upload
-                        VStack(spacing: 5) {
-                            HStack {
-                                Image(systemName: "arrow.up.circle.fill")
-                                    .foregroundColor(.blue)
-                                
-                                Text("Upload")
-                                    .font(.system(size: 12))
-                            }
-                            
-                            Text(entry.networkTraffic.uploadFormatted)
-                                .font(.system(size: 18, weight: .bold))
-                                .foregroundColor(.blue)
-                                .padding(.top, 3)
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                }
+            // Interface info
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Interface")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
                 
-                // Right column - visualization
-                VStack(spacing: 10) {
-                    // Download bar
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Download Speed")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                        
-                        GeometryReader { geo in
-                            // This would normally use a real percentage, but we're using a simulated value
-                            let percentage = min(entry.networkTraffic.download / (1024 * 1024), 1.0)
-                            
-                            ZStack(alignment: .leading) {
-                                Rectangle()
-                                    .fill(Color.gray.opacity(0.2))
-                                    .frame(height: 12)
-                                    .cornerRadius(6)
-                                
-                                Rectangle()
-                                    .fill(Color.green)
-                                    .frame(width: geo.size.width * CGFloat(percentage), height: 12)
-                                    .cornerRadius(6)
-                            }
-                        }
-                        .frame(height: 12)
-                    }
-                    
-                    // Upload bar
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Upload Speed")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                        
-                        GeometryReader { geo in
-                            // This would normally use a real percentage, but we're using a simulated value
-                            let percentage = min(entry.networkTraffic.upload / (512 * 1024), 1.0)
-                            
-                            ZStack(alignment: .leading) {
-                                Rectangle()
-                                    .fill(Color.gray.opacity(0.2))
-                                    .frame(height: 12)
-                                    .cornerRadius(6)
-                                
-                                Rectangle()
-                                    .fill(Color.blue)
-                                    .frame(width: geo.size.width * CGFloat(percentage), height: 12)
-                                    .cornerRadius(6)
-                            }
-                        }
-                        .frame(height: 12)
-                    }
-                    
-                    Spacer()
+                HStack {
+                    Image(systemName: "antenna.radiowaves.left.and.right")
+                        .foregroundColor(.purple)
+                    Text(interfaceDisplayName)
+                        .font(.system(size: 14, weight: .medium))
                 }
             }
-            .padding(.horizontal, 5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.vertical, 4)
+            
+            // Download section
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .foregroundColor(.green)
+                    
+                    Text("Download")
+                        .font(.system(size: 14, weight: .medium))
+                    
+                    Spacer()
+                    
+                    Text(entry.networkTraffic.downloadFormatted)
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.green)
+                }
+                
+                SparklineView(
+                    dataPoints: entry.downloadHistory,
+                    lineColor: .green,
+                    fillColor: .green.opacity(0.2),
+                    showMinMaxLabels: true
+                )
+                .frame(height: 50)
+                .padding(.horizontal, 4)
+            }
+            .padding(8)
+            .background(Color.green.opacity(0.1))
+            .cornerRadius(8)
+            
+            // Upload section
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .foregroundColor(.blue)
+                    
+                    Text("Upload")
+                        .font(.system(size: 14, weight: .medium))
+                    
+                    Spacer()
+                    
+                    Text(entry.networkTraffic.uploadFormatted)
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.blue)
+                }
+                
+                SparklineView(
+                    dataPoints: entry.uploadHistory,
+                    lineColor: .blue,
+                    fillColor: .blue.opacity(0.2),
+                    showMinMaxLabels: true
+                )
+                .frame(height: 50)
+                .padding(.horizontal, 4)
+            }
+            .padding(8)
+            .background(Color.blue.opacity(0.1))
+            .cornerRadius(8)
             
             Spacer()
             
-            Text("Last updated: \(formattedDateTime(entry.networkTraffic.timestamp))")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            HStack {
+                Text("15-minute history shown in graphs")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                
+                Spacer()
+                
+                Text("Last updated: \(formattedDateTime(entry.networkTraffic.timestamp))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding()
     }
@@ -419,7 +459,7 @@ struct NetworkTrafficWidget: Widget {
                 .containerBackground(.fill.tertiary, for: .widget)
         }
         .configurationDisplayName("Network Traffic")
-        .description("Shows network upload and download speeds.")
+        .description("Shows network upload and download speeds with historical graphs.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 } 

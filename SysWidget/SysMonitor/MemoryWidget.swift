@@ -6,6 +6,7 @@ import SwiftUI
 struct MemoryEntry: TimelineEntry {
     let date: Date
     let memoryUsage: MemoryUsageData
+    let memoryHistory: [TimeSeriesDataPoint]
     let configuration: MemoryConfigIntent
 }
 
@@ -13,17 +14,21 @@ struct MemoryEntry: TimelineEntry {
 
 struct MemoryProvider: AppIntentTimelineProvider {
     func placeholder(in context: Context) -> MemoryEntry {
-        MemoryEntry(
+        let memoryUsage = MemoryUsageData.getCurrentMemoryUsage()
+        return MemoryEntry(
             date: Date(),
-            memoryUsage: MemoryUsageData.getCurrentMemoryUsage(),
+            memoryUsage: memoryUsage,
+            memoryHistory: generateSampleData(),
             configuration: MemoryConfigIntent()
         )
     }
 
     func snapshot(for configuration: MemoryConfigIntent, in context: Context) async -> MemoryEntry {
-        MemoryEntry(
+        let memoryUsage = MemoryUsageData.getCurrentMemoryUsage()
+        return MemoryEntry(
             date: Date(),
-            memoryUsage: MemoryUsageData.getCurrentMemoryUsage(),
+            memoryUsage: memoryUsage,
+            memoryHistory: HistoricalDataManager.shared.getMemoryUsageHistory(),
             configuration: configuration
         )
     }
@@ -32,36 +37,36 @@ struct MemoryProvider: AppIntentTimelineProvider {
         var entries: [MemoryEntry] = []
         let memoryUsage = MemoryUsageData.getCurrentMemoryUsage()
         let currentDate = Date()
-        
-        // Get the configured refresh interval
-        let configuredInterval = configuration.updateFrequency.timeInterval
+        let memoryHistory = HistoricalDataManager.shared.getMemoryUsageHistory()
         
         // Add current entry
         entries.append(MemoryEntry(
             date: currentDate,
             memoryUsage: memoryUsage,
+            memoryHistory: memoryHistory,
             configuration: configuration
         ))
         
         // For very short intervals (10 seconds or less), use a different approach
-        if configuredInterval <= 10 {
+        if configuration.updateFrequency.timeInterval <= 10 {
             // For very short intervals, use .atEnd policy with only current entry
             return Timeline(entries: entries, policy: .atEnd)
         }
         
         // For longer intervals, generate future entries to ensure data availability
-        let numberOfEntries = configuredInterval < 60 ? 2 : 4
+        let numberOfEntries = configuration.updateFrequency.timeInterval < 60 ? 2 : 4
         
         // Generate future entries to ensure the widget has data even if refresh fails
         for i in 1...numberOfEntries {
             if let futureDate = Calendar.current.date(
                 byAdding: .second,
-                value: Int(configuredInterval) * i,
+                value: Int(configuration.updateFrequency.timeInterval) * i,
                 to: currentDate
             ) {
                 entries.append(MemoryEntry(
                     date: futureDate,
                     memoryUsage: memoryUsage,
+                    memoryHistory: memoryHistory, // Use same history for future entries
                     configuration: configuration
                 ))
             }
@@ -70,11 +75,27 @@ struct MemoryProvider: AppIntentTimelineProvider {
         // For normal intervals, set refresh policy using the configured interval
         let nextRefreshDate = Calendar.current.date(
             byAdding: .second,
-            value: Int(configuredInterval),
+            value: Int(configuration.updateFrequency.timeInterval),
             to: currentDate
-        ) ?? Date().addingTimeInterval(configuredInterval)
+        ) ?? Date().addingTimeInterval(configuration.updateFrequency.timeInterval)
         
         return Timeline(entries: entries, policy: .after(nextRefreshDate))
+    }
+    
+    // Generate sample data for placeholder
+    private func generateSampleData() -> [TimeSeriesDataPoint] {
+        var dataPoints: [TimeSeriesDataPoint] = []
+        let now = Date()
+        
+        // Create 15 minutes of data (90 points, every 10 seconds)
+        for i in 0..<90 {
+            let timestamp = now.addingTimeInterval(Double(-i * 10))
+            let value = Double.random(in: 40...75) // Random memory usage between 40% and 75%
+            dataPoints.append(TimeSeriesDataPoint(timestamp: timestamp, value: value))
+        }
+        
+        // Reverse to get chronological order
+        return dataPoints.reversed()
     }
 }
 
@@ -137,6 +158,16 @@ struct SmallMemoryView: View {
             
             Spacer()
             
+            // Small sparkline with min/max labels
+            SparklineView(
+                dataPoints: entry.memoryHistory,
+                lineColor: usageColor,
+                fillColor: usageColor.opacity(0.2),
+                showDots: false,
+                showMinMaxLabels: true
+            )
+            .frame(height: 30)
+            
             Text("\(entry.memoryUsage.freeFormatted) free")
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(.secondary)
@@ -161,28 +192,32 @@ struct MediumMemoryView: View {
     
     var body: some View {
         HStack {
-            ZStack {
-                Circle()
-                    .stroke(Color.gray.opacity(0.2), lineWidth: 10)
-                    .frame(width: 100, height: 100)
-                
-                Circle()
-                    .trim(from: 0, to: entry.memoryUsage.usedPercentage / 100)
-                    .stroke(usageColor, style: StrokeStyle(lineWidth: 10, lineCap: .round))
-                    .frame(width: 100, height: 100)
-                    .rotationEffect(.degrees(-90))
-                
-                VStack(spacing: 2) {
-                    Text("\(Int(entry.memoryUsage.usedPercentage))%")
-                        .font(.system(size: 20, weight: .bold))
+            // Left side - Circle
+            VStack {
+                ZStack {
+                    Circle()
+                        .stroke(Color.gray.opacity(0.2), lineWidth: 10)
+                        .frame(width: 100, height: 100)
                     
-                    Text("Used")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
+                    Circle()
+                        .trim(from: 0, to: entry.memoryUsage.usedPercentage / 100)
+                        .stroke(usageColor, style: StrokeStyle(lineWidth: 10, lineCap: .round))
+                        .frame(width: 100, height: 100)
+                        .rotationEffect(.degrees(-90))
+                    
+                    VStack(spacing: 2) {
+                        Text("\(Int(entry.memoryUsage.usedPercentage))%")
+                            .font(.system(size: 20, weight: .bold))
+                        
+                        Text("Used")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                .padding(.trailing, 8)
             }
-            .padding(.trailing, 8)
             
+            // Right side - Details
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Image(systemName: "memorychip")
@@ -191,6 +226,16 @@ struct MediumMemoryView: View {
                         .font(.headline)
                         .fontWeight(.bold)
                 }
+                
+                // Sparkline with min/max labels
+                SparklineView(
+                    dataPoints: entry.memoryHistory,
+                    lineColor: usageColor,
+                    fillColor: usageColor.opacity(0.2),
+                    showDots: entry.memoryHistory.count < 30,
+                    showMinMaxLabels: true
+                )
+                .frame(height: 40)
                 
                 Spacer()
                 
@@ -242,7 +287,7 @@ struct LargeMemoryView: View {
     var entry: MemoryEntry
     
     var body: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             HStack {
                 Image(systemName: "memorychip")
                     .foregroundStyle(.green)
@@ -252,114 +297,121 @@ struct LargeMemoryView: View {
                 Spacer()
             }
             
-            ZStack {
-                Circle()
-                    .stroke(Color.gray.opacity(0.2), lineWidth: 15)
-                    .frame(width: 110, height: 110)
-                
-                Circle()
-                    .trim(from: 0, to: entry.memoryUsage.usedPercentage / 100)
-                    .stroke(usageColor, style: StrokeStyle(lineWidth: 15, lineCap: .round))
-                    .frame(width: 110, height: 110)
-                    .rotationEffect(.degrees(-90))
-                
-                VStack(spacing: 2) {
-                    Text("\(Int(entry.memoryUsage.usedPercentage))%")
-                        .font(.system(size: 24, weight: .bold))
+            // Top section with chart and circle
+            HStack(spacing: 16) {
+                // Left side - Circle
+                ZStack {
+                    Circle()
+                        .stroke(Color.gray.opacity(0.2), lineWidth: 12)
+                        .frame(width: 100, height: 100)
                     
-                    Text("Used")
-                        .font(.system(size: 14))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            
-            // Memory type breakdown
-            VStack(spacing: 10) {
-                HStack {
-                    Spacer()
-                    VStack {
-                        Text("Total")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                        Text(entry.memoryUsage.totalFormatted)
-                            .font(.system(size: 16, weight: .bold))
-                    }
-                    Spacer()
-                    VStack {
-                        Text("Used")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                        Text(entry.memoryUsage.usedFormatted)
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(.red)
-                    }
-                    Spacer()
-                    VStack {
-                        Text("Free")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                        Text(entry.memoryUsage.freeFormatted)
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(.green)
-                    }
-                    Spacer()
-                }
-                
-                Divider()
-                
-                // Memory type breakdown
-                VStack(spacing: 8) {
-                    Text("Memory Allocation")
-                        .font(.system(size: 14, weight: .medium))
+                    Circle()
+                        .trim(from: 0, to: entry.memoryUsage.usedPercentage / 100)
+                        .stroke(usageColor, style: StrokeStyle(lineWidth: 12, lineCap: .round))
+                        .frame(width: 100, height: 100)
+                        .rotationEffect(.degrees(-90))
                     
-                    HStack(spacing: 15) {
-                        // Active memory
-                        VStack(alignment: .leading) {
-                            Text("Active")
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                            Text(entry.memoryUsage.activeFormatted)
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundStyle(.blue)
-                        }
-                        
-                        // Wired memory
-                        VStack(alignment: .leading) {
-                            Text("Wired")
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                            Text(entry.memoryUsage.wiredFormatted)
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundStyle(.orange)
-                        }
-                        
-                        // Inactive memory
-                        VStack(alignment: .leading) {
-                            Text("Inactive")
-                                .font(.system(size: 12))
-                                .foregroundStyle(.secondary)
-                            Text(entry.memoryUsage.inactiveFormatted)
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundStyle(.gray)
-                        }
-                    }
-                }
-                .padding(.vertical, 5)
-                
-                // Progress bar
-                ProgressView(value: entry.memoryUsage.usedPercentage, total: 100) {
-                    HStack {
-                        Text("Memory Usage")
-                            .font(.caption)
-                        Spacer()
+                    VStack(spacing: 2) {
                         Text("\(Int(entry.memoryUsage.usedPercentage))%")
-                            .font(.caption)
-                            .fontWeight(.bold)
+                            .font(.system(size: 24, weight: .bold))
+                        
+                        Text("Used")
+                            .font(.system(size: 14))
+                            .foregroundStyle(.secondary)
                     }
                 }
-                .tint(usageColor)
+                
+                // Right side - Graph
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Memory Usage (15 min)")
+                        .font(.system(size: 12, weight: .medium))
+                    
+                    SparklineView(
+                        dataPoints: entry.memoryHistory,
+                        lineColor: usageColor,
+                        fillColor: usageColor.opacity(0.2),
+                        showDots: entry.memoryHistory.count < 30,
+                        showMinMaxLabels: true
+                    )
+                    .frame(height: 80)
+                }
             }
-            .padding(.horizontal)
+            .padding(.vertical, 4)
+            
+            // Middle section with memory stats
+            HStack {
+                Spacer()
+                VStack {
+                    Text("Total")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                    Text(entry.memoryUsage.totalFormatted)
+                        .font(.system(size: 14, weight: .bold))
+                }
+                Spacer()
+                VStack {
+                    Text("Used")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                    Text(entry.memoryUsage.usedFormatted)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.red)
+                }
+                Spacer()
+                VStack {
+                    Text("Free")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                    Text(entry.memoryUsage.freeFormatted)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.green)
+                }
+                Spacer()
+            }
+            .padding(.vertical, 8)
+            .background(Color.gray.opacity(0.1))
+            .cornerRadius(8)
+            
+            // Bottom section with memory type breakdown
+            VStack(spacing: 8) {
+                Text("Memory Allocation")
+                    .font(.system(size: 14, weight: .medium))
+                
+                HStack(spacing: 15) {
+                    // Active memory
+                    VStack(alignment: .leading) {
+                        Text("Active")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                        Text(entry.memoryUsage.activeFormatted)
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.blue)
+                    }
+                    
+                    // Wired memory
+                    VStack(alignment: .leading) {
+                        Text("Wired")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                        Text(entry.memoryUsage.wiredFormatted)
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.orange)
+                    }
+                    
+                    // Inactive memory
+                    VStack(alignment: .leading) {
+                        Text("Inactive")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                        Text(entry.memoryUsage.inactiveFormatted)
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.gray)
+                    }
+                }
+            }
+            .padding(.vertical, 5)
+            
+            Spacer()
             
             Text("Last updated: \(formattedDateTime(entry.date))")
                 .font(.caption)
@@ -398,7 +450,7 @@ struct MemoryUsageWidget: Widget {
                 .containerBackground(.fill.tertiary, for: .widget)
         }
         .configurationDisplayName("Memory Usage")
-        .description("Shows RAM usage on your system.")
+        .description("Shows RAM usage on your system with historical graph.")
         .supportedFamilies([.systemSmall, .systemMedium, .systemLarge])
     }
 } 
