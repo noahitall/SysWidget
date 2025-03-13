@@ -11,144 +11,198 @@ struct FolderSpaceConfigView: View {
     private let userDefaults = UserDefaults(suiteName: "group.com.noahzitsman.syswidget")
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            Text("Folder Space Widget Configuration")
-                .font(.title)
-                .fontWeight(.bold)
-            
-            Divider()
-            
-            // Folder selection
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Selected Folder")
-                    .font(.headline)
-                
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                // Header
                 HStack {
-                    Image(systemName: "folder.fill")
+                    Image(systemName: "folder.badge.gearshape")
+                        .font(.system(size: 18))
                         .foregroundColor(.blue)
-                    
-                    Text(selectedFolderName)
-                        .lineLimit(1)
-                    
-                    Spacer()
-                    
-                    Button("Select Folder") {
-                        showFolderPicker = true
-                    }
-                    .buttonStyle(.bordered)
+                    Text("Folder Widget Configuration")
+                        .font(.system(size: 24, weight: .bold))
                 }
-                .padding()
-                .background(Color.gray.opacity(0.1))
-                .cornerRadius(8)
-            }
-            
-            // Refresh interval selection
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Refresh Interval")
-                    .font(.headline)
+                .padding(.top)
                 
-                Picker("Refresh Interval", selection: $refreshInterval) {
-                    ForEach(RefreshInterval.allCases) { interval in
-                        Text("Every \(interval.displayName)")
-                            .tag(interval)
+                // Folder Selection Card
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Selected Folder")
+                        .font(.headline)
+                    
+                    HStack {
+                        Image(systemName: "folder.fill")
+                            .foregroundColor(.blue)
+                        
+                        Text(selectedFolderName)
+                            .lineLimit(1)
+                        
+                        Spacer()
+                        
+                        Button(action: { showFolderPicker = true }) {
+                            HStack {
+                                Image(systemName: "folder.badge.plus")
+                                Text("Select Folder")
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color.blue)
+                            .foregroundColor(.white)
+                            .cornerRadius(8)
+                        }
+                    }
+                    .padding()
+                    .background(Color.blue.opacity(0.1))
+                    .cornerRadius(8)
+                }
+                .padding()
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(12)
+                
+                // Refresh Interval Card
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Refresh Interval")
+                        .font(.headline)
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(RefreshInterval.allCases) { interval in
+                            HStack {
+                                Image(systemName: refreshInterval == interval ? "checkmark.circle.fill" : "circle")
+                                    .foregroundColor(refreshInterval == interval ? .blue : .gray)
+                                
+                                Text("Every \(interval.displayName)")
+                                    .font(.system(size: 14))
+                                
+                                Spacer()
+                            }
+                            .padding()
+                            .background(refreshInterval == interval ? Color.blue.opacity(0.1) : Color.clear)
+                            .cornerRadius(8)
+                            .onTapGesture {
+                                refreshInterval = interval
+                            }
+                        }
                     }
                 }
-                .pickerStyle(MenuPickerStyle())
                 .padding()
                 .background(Color.gray.opacity(0.1))
-                .cornerRadius(8)
-            }
-            
-            // Save button
-            Button(action: saveConfiguration) {
-                HStack {
-                    Image(systemName: "checkmark.circle.fill")
-                    Text("Save Configuration")
+                .cornerRadius(12)
+                
+                // Save Button Card
+                VStack(spacing: 12) {
+                    Button(action: saveConfiguration) {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                            Text("Save Configuration")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(selectedFolderURL != nil ? Color.blue : Color.gray)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                    }
+                    .disabled(selectedFolderURL == nil)
+                    
+                    if isSaved {
+                        HStack {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundColor(.green)
+                            Text("Configuration saved! Widget will update shortly.")
+                                .foregroundColor(.green)
+                        }
+                    }
                 }
-                .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(selectedFolderURL == nil)
-            .padding(.top, 10)
-            
-            if isSaved {
-                HStack {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.green)
-                    Text("Configuration saved! Widget will update shortly.")
-                        .foregroundColor(.green)
-                }
-                .padding(.top, 5)
-            }
-            
-            Spacer()
-            
-            Text("The widget will monitor the selected folder and display its size. You can add this widget to your desktop by right-clicking on the desktop and selecting 'Edit Widgets'.")
-                .font(.caption)
-                .foregroundColor(.secondary)
                 .padding()
                 .background(Color.gray.opacity(0.1))
-                .cornerRadius(8)
+                .cornerRadius(12)
+                
+                // Instructions Card
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Image(systemName: "info.circle")
+                            .foregroundColor(.blue)
+                        Text("Widget Instructions")
+                            .font(.headline)
+                    }
+                    
+                    VStack(alignment: .leading, spacing: 8) {
+                        InstructionRow(number: 1, text: "Right-click on your desktop")
+                        InstructionRow(number: 2, text: "Select 'Edit Widgets'")
+                        InstructionRow(number: 3, text: "Find 'Folder Space' in the widget gallery")
+                        InstructionRow(number: 4, text: "Drag it to your desktop")
+                    }
+                }
+                .padding()
+                .background(Color.gray.opacity(0.1))
+                .cornerRadius(12)
+            }
+            .padding()
         }
-        .padding()
-        .frame(minWidth: 500, minHeight: 400)
+        .fileImporter(
+            isPresented: $showFolderPicker,
+            allowedContentTypes: [.folder],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                if let url = urls.first {
+                    selectedFolderURL = url
+                    selectedFolderName = url.lastPathComponent
+                }
+            case .failure(let error):
+                print("Error selecting folder: \(error.localizedDescription)")
+            }
+        }
         .onAppear(perform: loadSavedConfiguration)
-        .onChange(of: showFolderPicker) { isShowing in
-            if isShowing {
-                selectFolder()
-            }
-        }
-    }
-    
-    private func selectFolder() {
-        SelectFolderIntentProvider.selectFolder { url, displayName in
-            showFolderPicker = false
-            
-            if let url = url, let displayName = displayName {
-                selectedFolderURL = url
-                selectedFolderName = displayName
-            }
-        }
     }
     
     private func saveConfiguration() {
-        guard let folderURL = selectedFolderURL else { return }
+        guard let url = selectedFolderURL else { return }
         
-        let configuration = FolderSpaceConfiguration(
-            folderURL: folderURL,
-            folderDisplayName: selectedFolderName,
-            refreshInterval: refreshInterval
-        )
+        userDefaults?.set(url.path, forKey: "selectedFolderPath")
+        userDefaults?.set(refreshInterval.rawValue, forKey: "refreshInterval")
         
-        do {
-            let data = try JSONEncoder().encode(configuration)
-            userDefaults?.set(data, forKey: "folderSpaceConfiguration")
-            isSaved = true
-            
-            // Reload the widget
-            WidgetCenter.shared.reloadAllTimelines()
-            
-            // Hide the saved message after 3 seconds
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                isSaved = false
-            }
-        } catch {
-            print("Error saving configuration: \(error)")
+        isSaved = true
+        WidgetCenter.shared.reloadAllTimelines()
+        
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            isSaved = false
         }
     }
     
     private func loadSavedConfiguration() {
-        guard let data = userDefaults?.data(forKey: "folderSpaceConfiguration") else {
-            return
+        if let savedPath = userDefaults?.string(forKey: "selectedFolderPath") {
+            selectedFolderURL = URL(fileURLWithPath: savedPath)
+            selectedFolderName = selectedFolderURL?.lastPathComponent ?? "Not selected"
         }
         
-        do {
-            let configuration = try JSONDecoder().decode(FolderSpaceConfiguration.self, from: data)
-            selectedFolderURL = configuration.folderURL
-            selectedFolderName = configuration.folderDisplayName
-            refreshInterval = configuration.refreshInterval
-        } catch {
-            print("Error loading configuration: \(error)")
+        if let savedInterval = userDefaults?.integer(forKey: "refreshInterval"),
+           let interval = RefreshInterval(rawValue: savedInterval) {
+            refreshInterval = interval
         }
     }
+}
+
+struct InstructionRow: View {
+    let number: Int
+    let text: String
+    
+    var body: some View {
+        HStack(spacing: 12) {
+            ZStack {
+                Circle()
+                    .fill(Color.blue.opacity(0.2))
+                    .frame(width: 24, height: 24)
+                
+                Text("\(number)")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(.blue)
+            }
+            
+            Text(text)
+                .font(.system(size: 14))
+        }
+    }
+}
+
+#Preview {
+    FolderSpaceConfigView()
 } 

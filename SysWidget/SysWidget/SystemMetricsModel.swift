@@ -51,6 +51,8 @@ class SystemMetricsModel: ObservableObject {
     struct NetworkTraffic {
         var upload: Double = 0  // bytes per second
         var download: Double = 0 // bytes per second
+        var uploadHistory: [TimeSeriesDataPoint] = []
+        var downloadHistory: [TimeSeriesDataPoint] = []
         
         var uploadFormatted: String {
             ByteCountFormatter.string(fromByteCount: Int64(upload), countStyle: .memory) + "/s"
@@ -58,6 +60,20 @@ class SystemMetricsModel: ObservableObject {
         
         var downloadFormatted: String {
             ByteCountFormatter.string(fromByteCount: Int64(download), countStyle: .memory) + "/s"
+        }
+        
+        mutating func addDataPoint() {
+            let now = Date()
+            uploadHistory.append(TimeSeriesDataPoint(timestamp: now, value: upload))
+            downloadHistory.append(TimeSeriesDataPoint(timestamp: now, value: download))
+            
+            // Keep only the last 60 data points (15 minutes at 15-second intervals)
+            if uploadHistory.count > 60 {
+                uploadHistory.removeFirst(uploadHistory.count - 60)
+            }
+            if downloadHistory.count > 60 {
+                downloadHistory.removeFirst(downloadHistory.count - 60)
+            }
         }
     }
     
@@ -152,5 +168,8 @@ class SystemMetricsModel: ObservableObject {
         // These are simulated values
         self.networkTraffic.download = Double.random(in: 0...1024 * 1024) // 0-1MB/s
         self.networkTraffic.upload = Double.random(in: 0...512 * 1024) // 0-512KB/s
+        
+        // Add data point to history
+        self.networkTraffic.addDataPoint()
     }
 } 

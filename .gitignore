@@ -69,5 +69,6 @@ fastlane/test_output
 .Trashes
 
 # Distribution / packaging
+Distribution/build
 Distribution/*.dmg
 Distribution/archive/
