@@ -32,13 +32,15 @@ struct TimeSeriesDataPointCodable: Codable {
 class HistoricalDataManager {
     static let shared = HistoricalDataManager()
     
-    // 15 minutes of data with points collected every 10 seconds
-    private let maxDataPoints = 90 // 15 minutes * 6 points per minute
+    // 15 minutes of data with points collected every 15 seconds
+    private let maxDataPoints = 60 // 15 minutes * 4 points per minute
+    private let samplingInterval: TimeInterval = 15 // Sample every 15 seconds
     
     // UserDefaults keys
     private let memoryHistoryKey = "memoryUsageHistory"
     private let downloadHistoryKey = "networkDownloadHistory"
     private let uploadHistoryKey = "networkUploadHistory"
+    private let lastSamplingTimeKey = "lastSamplingTime"
     
     // Historical data storage
     private var memoryUsageHistory: [TimeSeriesDataPoint] = []
@@ -49,8 +51,44 @@ class HistoricalDataManager {
     private var lastMemoryCollectionTime = Date(timeIntervalSince1970: 0)
     private var lastNetworkCollectionTime = Date(timeIntervalSince1970: 0)
     
+    // Timer for background sampling
+    private var backgroundSamplingTimer: Timer?
+    
     private init() {
         loadDataFromUserDefaults()
+        setupBackgroundSampling()
+    }
+    
+    // Set up background sampling
+    private func setupBackgroundSampling() {
+        // Create a timer that fires every 15 seconds
+        backgroundSamplingTimer = Timer.scheduledTimer(withTimeInterval: samplingInterval, repeats: true) { [weak self] _ in
+            self?.sampleNetworkTraffic()
+        }
+        
+        // Make sure timer runs even when widget is not refreshing
+        if let timer = backgroundSamplingTimer {
+            RunLoop.current.add(timer, forMode: .common)
+        }
+    }
+    
+    // Sample network traffic in the background
+    private func sampleNetworkTraffic() {
+        // Get current network traffic for all interfaces
+        let _ = NetworkTrafficData.getCurrentNetworkTraffic(for: "all")
+        
+        // Get interfaces list
+        let interfaces = NetworkInterface.getAvailableInterfaces()
+        
+        // Sample each active interface
+        for interface in interfaces where interface.isUp && interface.name != "all" {
+            let _ = NetworkTrafficData.getCurrentNetworkTraffic(for: interface.name)
+        }
+        
+        // Save timestamp of last sampling
+        let userDefaults = UserDefaults(suiteName: "group.com.noahzitsman.syswidget") ?? UserDefaults.standard
+        userDefaults.set(Date().timeIntervalSince1970, forKey: lastSamplingTimeKey)
+        userDefaults.synchronize()
     }
     
     // Load data from UserDefaults
@@ -71,6 +109,9 @@ class HistoricalDataManager {
            let uploadHistory = try? JSONDecoder().decode([TimeSeriesDataPointCodable].self, from: uploadData) {
             networkUploadHistory = uploadHistory.map { $0.toTimeSeriesDataPoint() }
         }
+        
+        // Load last sampling time
+        lastNetworkCollectionTime = Date(timeIntervalSince1970: userDefaults.double(forKey: lastSamplingTimeKey))
     }
     
     // Save data to UserDefaults
@@ -97,9 +138,9 @@ class HistoricalDataManager {
     
     // Add a memory usage data point
     func addMemoryDataPoint(usagePercentage: Double) {
-        // Only collect data every 10 seconds
+        // Only collect data every samplingInterval seconds
         let now = Date()
-        if now.timeIntervalSince(lastMemoryCollectionTime) < 10 {
+        if now.timeIntervalSince(lastMemoryCollectionTime) < samplingInterval {
             return
         }
         
@@ -117,9 +158,9 @@ class HistoricalDataManager {
     
     // Add network traffic data points
     func addNetworkDataPoints(downloadSpeed: Double, uploadSpeed: Double) {
-        // Only collect data every 10 seconds
+        // Only collect data every samplingInterval seconds
         let now = Date()
-        if now.timeIntervalSince(lastNetworkCollectionTime) < 10 {
+        if now.timeIntervalSince(lastNetworkCollectionTime) < samplingInterval {
             return
         }
         
@@ -165,6 +206,12 @@ class HistoricalDataManager {
     func clearNetworkData() {
         networkDownloadHistory.removeAll()
         networkUploadHistory.removeAll()
+        saveDataToUserDefaults()
+    }
+    
+    // Cleanup resources when app terminates
+    deinit {
+        backgroundSamplingTimer?.invalidate()
     }
 }
 
@@ -235,6 +282,9 @@ public struct MemoryUsageData {
     public let wired: UInt64
     public let timestamp: Date
     
+    // Static timestamp to track last sample time
+    private static var lastSampleTime = Date(timeIntervalSince1970: 0)
+    
     public var totalFormatted: String {
         ByteCountFormatter.string(fromByteCount: Int64(total), countStyle: .memory)
     }
@@ -294,6 +344,7 @@ public struct MemoryUsageData {
             percentage = Double(used) / Double(total) * 100
         }
         
+        let now = Date()
         let memoryData = MemoryUsageData(
             total: total,
             used: used,
@@ -302,11 +353,15 @@ public struct MemoryUsageData {
             active: active,
             inactive: inactive,
             wired: wired,
-            timestamp: Date()
+            timestamp: now
         )
         
-        // Add data point to historical data
-        HistoricalDataManager.shared.addMemoryDataPoint(usagePercentage: memoryData.usedPercentage)
+        // Only add data point to historical data if 15 seconds have passed since last sample
+        let samplingInterval: TimeInterval = 15
+        if now.timeIntervalSince(lastSampleTime) >= samplingInterval {
+            HistoricalDataManager.shared.addMemoryDataPoint(usagePercentage: memoryData.usedPercentage)
+            lastSampleTime = now
+        }
         
         return memoryData
     }
@@ -397,6 +452,11 @@ public struct NetworkTrafficData {
     public let interfaceName: String
     public let timestamp: Date
     
+    // Static storage for byte counts across widget refreshes
+    private static var lastDownloadBytes: [String: UInt64] = [:]
+    private static var lastUploadBytes: [String: UInt64] = [:]
+    private static var lastSampleTime: [String: Date] = [:]
+    
     public var uploadFormatted: String {
         formatBandwidth(upload)
     }
@@ -417,33 +477,92 @@ public struct NetworkTrafficData {
         }
     }
     
-    // Helper function to get network traffic
+    // Helper function to get current network traffic
     public static func getCurrentNetworkTraffic(for interfaceName: String) -> NetworkTrafficData {
-        // For a real implementation, you'd need to:
-        // 1. Track previous and current bytes transmitted/received
-        // 2. Calculate the difference over time
-        // 3. Store this information between widget refreshes
+        let now = Date()
+        var downloadSpeed: Double = 0
+        var uploadSpeed: Double = 0
         
-        // This is a placeholder with simulated values:
-        let download = interfaceName == "all" ? 
-            Double.random(in: 0...1024 * 1024) : // 0-1MB/s
-            Double.random(in: 0...512 * 1024)    // 0-512KB/s
+        // Get the current byte counts
+        let (downloadBytes, uploadBytes) = getInterfaceByteCount(for: interfaceName)
         
-        let upload = interfaceName == "all" ? 
-            Double.random(in: 0...512 * 1024) :  // 0-512KB/s
-            Double.random(in: 0...256 * 1024)    // 0-256KB/s
+        // Calculate speeds based on difference from last sample
+        if let lastDownload = lastDownloadBytes[interfaceName],
+           let lastUpload = lastUploadBytes[interfaceName],
+           let lastTime = lastSampleTime[interfaceName] {
+            
+            let timeDiff = now.timeIntervalSince(lastTime)
+            
+            if timeDiff > 0 {
+                // Calculate bytes per second
+                if downloadBytes >= lastDownload {
+                    downloadSpeed = Double(downloadBytes - lastDownload) / timeDiff
+                }
+                
+                if uploadBytes >= lastUpload {
+                    uploadSpeed = Double(uploadBytes - lastUpload) / timeDiff
+                }
+            }
+        }
+        
+        // Store current values for next calculation
+        lastDownloadBytes[interfaceName] = downloadBytes
+        lastUploadBytes[interfaceName] = uploadBytes
+        lastSampleTime[interfaceName] = now
         
         let networkData = NetworkTrafficData(
-            upload: upload,
-            download: download,
+            upload: uploadSpeed,
+            download: downloadSpeed,
             interfaceName: interfaceName,
-            timestamp: Date()
+            timestamp: now
         )
         
         // Add data points to historical data
-        HistoricalDataManager.shared.addNetworkDataPoints(downloadSpeed: download, uploadSpeed: upload)
+        HistoricalDataManager.shared.addNetworkDataPoints(downloadSpeed: downloadSpeed, uploadSpeed: uploadSpeed)
         
         return networkData
+    }
+    
+    // Get byte counts for a specific interface or all interfaces
+    private static func getInterfaceByteCount(for interfaceName: String) -> (UInt64, UInt64) {
+        var totalDownloadBytes: UInt64 = 0
+        var totalUploadBytes: UInt64 = 0
+        
+        var ifaddr: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&ifaddr) == 0 else { return (0, 0) }
+        defer { freeifaddrs(ifaddr) }
+        
+        var ptr = ifaddr
+        
+        while ptr != nil {
+            defer { ptr = ptr?.pointee.ifa_next }
+            
+            guard let interface = ptr?.pointee,
+                  let addr = interface.ifa_addr,
+                  (addr.pointee.sa_family == UInt8(AF_LINK) || addr.pointee.sa_family == UInt8(AF_INET)) else {
+                continue
+            }
+            
+            let name = String(cString: interface.ifa_name)
+            
+            // Skip loopback interface
+            if name == "lo0" { continue }
+            
+            // If we want stats for a specific interface, filter by name
+            if interfaceName != "all" && name != interfaceName { continue }
+            
+            // Get traffic data from the interface
+            var data = if_data()
+            if addr.pointee.sa_family == UInt8(AF_LINK) {
+                let dlAddr = unsafeBitCast(interface.ifa_data, to: UnsafePointer<if_data>.self)
+                data = dlAddr.pointee
+                
+                totalDownloadBytes += UInt64(data.ifi_ibytes)
+                totalUploadBytes += UInt64(data.ifi_obytes)
+            }
+        }
+        
+        return (totalDownloadBytes, totalUploadBytes)
     }
     
     // Public initializer

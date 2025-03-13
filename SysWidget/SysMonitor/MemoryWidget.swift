@@ -47,20 +47,19 @@ struct MemoryProvider: AppIntentTimelineProvider {
             configuration: configuration
         ))
         
-        // For very short intervals (10 seconds or less), use a different approach
-        if configuration.updateFrequency.timeInterval <= 10 {
-            // For very short intervals, use .atEnd policy with only current entry
-            return Timeline(entries: entries, policy: .atEnd)
-        }
+        // Determine next refresh time based on widget configuration
+        // The data will be sampled more frequently (every 15 seconds) regardless of widget refreshes
+        let configuredInterval = configuration.updateFrequency.timeInterval
+        let refreshInterval = max(configuredInterval, 60.0) // Refresh widget UI at minimum every minute
         
-        // For longer intervals, generate future entries to ensure data availability
-        let numberOfEntries = configuration.updateFrequency.timeInterval < 60 ? 2 : 4
+        // For longer refresh intervals, generate future entries to ensure data availability
+        let numberOfEntries = 2 // Reduced number since we're sampling in the background anyway
         
         // Generate future entries to ensure the widget has data even if refresh fails
         for i in 1...numberOfEntries {
             if let futureDate = Calendar.current.date(
                 byAdding: .second,
-                value: Int(configuration.updateFrequency.timeInterval) * i,
+                value: Int(refreshInterval) * i,
                 to: currentDate
             ) {
                 entries.append(MemoryEntry(
@@ -75,9 +74,9 @@ struct MemoryProvider: AppIntentTimelineProvider {
         // For normal intervals, set refresh policy using the configured interval
         let nextRefreshDate = Calendar.current.date(
             byAdding: .second,
-            value: Int(configuration.updateFrequency.timeInterval),
+            value: Int(refreshInterval),
             to: currentDate
-        ) ?? Date().addingTimeInterval(configuration.updateFrequency.timeInterval)
+        ) ?? Date().addingTimeInterval(refreshInterval)
         
         return Timeline(entries: entries, policy: .after(nextRefreshDate))
     }
